@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
-import { supabase, DiaryAllotment, Issuer, Diary, formatLotteryNumber } from '../lib/supabase';
+import { supabase, DiaryAllotment, Issuer, Diary, formatLotteryNumber, TicketSale } from '../lib/supabase';
 import { 
   Plus, 
   Edit, 
@@ -19,9 +19,16 @@ import {
   DollarSign,
   Calendar,
   Lock,
-  Unlock
+  Unlock,
+  FileText,
+  Download,
+  FileSpreadsheet
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+// @ts-ignore - jspdf-autotable extends jsPDF prototype
+import 'jspdf-autotable';
 
 interface IssuerFormData {
   issuer_name: string;
@@ -54,6 +61,22 @@ const DiaryManagement: React.FC = () => {
   const [showDiarySuggestions, setShowDiarySuggestions] = useState(false);
   const [filteredDiaries, setFilteredDiaries] = useState<Diary[]>([]);
   const [selectedDiary, setSelectedDiary] = useState<Diary | null>(null);
+  
+  // Report states
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [selectedIssuerForReport, setSelectedIssuerForReport] = useState<Issuer | null>(null);
+  const [reportData, setReportData] = useState<{
+    tickets: TicketSale[];
+    allotments: DiaryAllotment[];
+    summary: {
+      totalTicketsSold: number;
+      totalDiariesIssued: number;
+      diariesAllotted: number[];
+      diariesPaid: number[];
+      diariesAllottedStatus: { diaryNumber: number; status: string }[];
+    };
+  } | null>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
   const [stats, setStats] = useState({
     totalDiaries: 1819, // Fixed total diaries count
     allottedDiaries: 0,
@@ -483,6 +506,390 @@ const DiaryManagement: React.FC = () => {
         return 'badge-danger';
       default:
         return 'badge-secondary';
+    }
+  };
+
+  const handleViewReport = async (issuer: Issuer) => {
+    try {
+      setLoadingReport(true);
+      setSelectedIssuerForReport(issuer);
+      setShowReportModal(true);
+
+      // Fetch all tickets for this issuer
+      const { data: ticketsData, error: ticketsError } = await supabase
+        .from('ticket_sales')
+        .select(`
+          *,
+          issuer:issuers(*),
+          diary:diaries(*)
+        `)
+        .eq('issuer_id', issuer.id)
+        .order('lottery_number', { ascending: true });
+
+      if (ticketsError) throw ticketsError;
+
+      // Fetch all allotments for this issuer
+      const { data: allotmentsData, error: allotmentsError } = await supabase
+        .from('diary_allotments')
+        .select(`
+          *,
+          diary:diaries(*)
+        `)
+        .eq('issuer_id', issuer.id)
+        .order('allotment_date', { ascending: true });
+
+      if (allotmentsError) throw allotmentsError;
+
+      // Calculate summary
+      const diariesAllotted = (allotmentsData || []).map(a => a.diary?.diary_number).filter(Boolean) as number[];
+      const diariesPaid = (allotmentsData || [])
+        .filter(a => a.status === 'paid')
+        .map(a => a.diary?.diary_number)
+        .filter(Boolean) as number[];
+      
+      // Total diaries issued = diaries allotted + diaries paid (unique count)
+      const allDiariesIssued = [...new Set([...diariesAllotted, ...diariesPaid])];
+      
+      const diariesAllottedStatus = (allotmentsData || []).map(a => ({
+        diaryNumber: a.diary?.diary_number || 0,
+        status: a.status
+      }));
+
+      setReportData({
+        tickets: ticketsData || [],
+        allotments: allotmentsData || [],
+        summary: {
+          totalTicketsSold: ticketsData?.length || 0,
+          totalDiariesIssued: allDiariesIssued.length,
+          diariesAllotted,
+          diariesPaid,
+          diariesAllottedStatus
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching report data:', error);
+      toast.error('Failed to load report data');
+    } finally {
+      setLoadingReport(false);
+    }
+  };
+
+  const exportToExcel = () => {
+    if (!reportData || !selectedIssuerForReport) return;
+
+    const wsData = [
+      ['Issuer Report'],
+      ['Issuer Name:', selectedIssuerForReport.issuer_name],
+      ['Contact:', selectedIssuerForReport.contact_number],
+      [''],
+      ['Summary'],
+      ['Total Tickets Sold:', reportData.summary.totalTicketsSold],
+      ['Total Diaries Issued:', reportData.summary.totalDiariesIssued],
+      ['Diaries Allotted:', reportData.summary.diariesAllotted.join(', ')],
+      ['Diaries Paid:', reportData.summary.diariesPaid.join(', ')],
+      [''],
+      ['Detailed Ticket Information'],
+      ['Lottery Number', 'Purchaser Name', 'Contact', 'Address', 'Diary Number', 'Purchase Date', 'Amount Paid']
+    ];
+
+    // Add ticket data
+    reportData.tickets.forEach(ticket => {
+      wsData.push([
+        formatLotteryNumber(ticket.lottery_number),
+        ticket.purchaser_name,
+        ticket.purchaser_contact,
+        ticket.purchaser_address || '',
+        ticket.diary?.diary_number?.toString() || '',
+        new Date(ticket.purchase_date).toLocaleDateString('en-IN'),
+        `₹${ticket.amount_paid}`
+      ]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Issuer Report');
+
+    const fileName = `${selectedIssuerForReport.issuer_name}_Report_${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+    toast.success('Report exported to Excel');
+  };
+
+  const exportToPDF = () => {
+    if (!reportData || !selectedIssuerForReport) {
+      toast.error('No report data available');
+      return;
+    }
+
+    try {
+      // Initialize PDF document
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+      
+      let currentPage = 1;
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      let yPos = 20;
+      const margin = 14;
+      const lineHeight = 7;
+      
+      // Helper function to add new page
+      const addNewPage = () => {
+        doc.addPage();
+        currentPage++;
+        yPos = 20;
+        // Add page number
+        doc.setFontSize(10);
+        doc.text(
+          `Page ${currentPage}`,
+          pageWidth / 2,
+          pageHeight - 10,
+          { align: 'center' }
+        );
+        yPos = 20;
+      };
+      
+      // Helper function to check if we need a new page
+      const checkPageBreak = (requiredSpace: number) => {
+        if (yPos + requiredSpace > pageHeight - 20) {
+          addNewPage();
+        }
+      };
+      
+      // Title
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Issuer Report', margin, yPos);
+      yPos += 10;
+      
+      // Issuer Info
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'normal');
+      checkPageBreak(15);
+      doc.text(`Issuer Name: ${selectedIssuerForReport.issuer_name}`, margin, yPos);
+      yPos += lineHeight;
+      doc.text(`Contact: ${selectedIssuerForReport.contact_number}`, margin, yPos);
+      yPos += 10;
+      
+      // Summary Section
+      checkPageBreak(30);
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Summary', margin, yPos);
+      yPos += 8;
+      
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Total Tickets Sold: ${reportData.summary.totalTicketsSold}`, margin, yPos);
+      yPos += lineHeight;
+      doc.text(`Total Diaries Issued: ${reportData.summary.totalDiariesIssued}`, margin, yPos);
+      yPos += lineHeight;
+      
+      // Diaries Allotted
+      const allottedText = `Diaries Allotted: ${reportData.summary.diariesAllotted.length > 0 ? reportData.summary.diariesAllotted.join(', ') : 'None'}`;
+      const allottedLines = doc.splitTextToSize(allottedText, pageWidth - (margin * 2));
+      
+      allottedLines.forEach((line: string) => {
+        checkPageBreak(lineHeight);
+        doc.text(line, margin, yPos);
+        yPos += lineHeight;
+      });
+      
+      // Diaries Paid
+      const paidText = `Diaries Paid: ${reportData.summary.diariesPaid.length > 0 ? reportData.summary.diariesPaid.join(', ') : 'None'}`;
+      const paidLines = doc.splitTextToSize(paidText, pageWidth - (margin * 2));
+      
+      paidLines.forEach((line: string) => {
+        checkPageBreak(lineHeight);
+        doc.text(line, margin, yPos);
+        yPos += lineHeight;
+      });
+      
+      yPos += 5;
+
+      // Payment Status Table
+      const statusData = reportData.summary.diariesAllottedStatus.map(s => [
+        s.diaryNumber.toString(),
+        s.status.charAt(0).toUpperCase() + s.status.slice(1).replace('_', ' ')
+      ]);
+      
+      if (statusData.length > 0) {
+        checkPageBreak(30);
+        
+        // Check if autoTable is available
+        if (typeof (doc as any).autoTable === 'function') {
+          try {
+            (doc as any).autoTable({
+            startY: yPos,
+            head: [['Diary Number', 'Status']],
+            body: statusData,
+            theme: 'striped',
+            headStyles: { fillColor: [59, 130, 246] },
+            margin: { left: margin, right: margin },
+            styles: { fontSize: 10 },
+            didDrawPage: (data: any) => {
+              // Add page number on each page
+              doc.setFontSize(10);
+              doc.text(
+                `Page ${data.pageNumber}`,
+                pageWidth / 2,
+                pageHeight - 10,
+                { align: 'center' }
+              );
+            }
+          });
+
+            yPos = (doc as any).lastAutoTable.finalY + 10;
+          } catch (tableError) {
+            console.error('Error creating status table:', tableError);
+            // Fallback: just list the statuses as text
+            checkPageBreak(20);
+            doc.setFontSize(11);
+            doc.setFont('helvetica', 'bold');
+            doc.text('Diary Payment Status:', margin, yPos);
+            yPos += lineHeight;
+            doc.setFont('helvetica', 'normal');
+            statusData.forEach(([diary, status]) => {
+              checkPageBreak(lineHeight);
+              doc.text(`Diary ${diary}: ${status}`, margin + 5, yPos);
+              yPos += lineHeight;
+            });
+          }
+        } else {
+          // autoTable not available, use fallback
+          console.warn('autoTable function not available, using fallback');
+          checkPageBreak(20);
+          doc.setFontSize(11);
+          doc.setFont('helvetica', 'bold');
+          doc.text('Diary Payment Status:', margin, yPos);
+          yPos += lineHeight;
+          doc.setFont('helvetica', 'normal');
+          statusData.forEach(([diary, status]) => {
+            checkPageBreak(lineHeight);
+            doc.text(`Diary ${diary}: ${status}`, margin + 5, yPos);
+            yPos += lineHeight;
+          });
+        }
+      }
+
+      // Detailed Ticket Table
+      const ticketData = reportData.tickets.map(ticket => {
+        const address = (ticket.purchaser_address || 'N/A');
+        const truncatedAddress = address.length > 30 ? address.substring(0, 27) + '...' : address;
+        
+        return [
+          formatLotteryNumber(ticket.lottery_number),
+          (ticket.purchaser_name || 'N/A').substring(0, 25),
+          (ticket.purchaser_contact || 'N/A').substring(0, 15),
+          truncatedAddress,
+          ticket.diary?.diary_number?.toString() || 'N/A',
+          new Date(ticket.purchase_date).toLocaleDateString('en-IN'),
+          `₹${ticket.amount_paid}`
+        ];
+      });
+
+      if (ticketData.length > 0) {
+        checkPageBreak(30);
+        
+        // Check if autoTable is available
+        if (typeof (doc as any).autoTable === 'function') {
+          try {
+            (doc as any).autoTable({
+            startY: yPos,
+            head: [['Lottery #', 'Purchaser', 'Contact', 'Address', 'Diary', 'Date', 'Amount']],
+            body: ticketData,
+            theme: 'striped',
+            headStyles: { fillColor: [59, 130, 246] },
+            styles: { fontSize: 7 },
+            margin: { left: margin, right: margin },
+            columnStyles: {
+              0: { cellWidth: 20 },
+              1: { cellWidth: 35 },
+              2: { cellWidth: 30 },
+              3: { cellWidth: 40 },
+              4: { cellWidth: 15 },
+              5: { cellWidth: 25 },
+              6: { cellWidth: 20 }
+            },
+            didDrawPage: (data: any) => {
+              // Add page number on each page
+              doc.setFontSize(10);
+              doc.text(
+                `Page ${data.pageNumber}`,
+                pageWidth / 2,
+                pageHeight - 10,
+                { align: 'center' }
+              );
+            }
+            });
+          } catch (tableError) {
+            console.error('Error creating ticket table:', tableError);
+            // Fallback: create a simpler table without autoTable
+            checkPageBreak(20);
+            doc.setFontSize(11);
+            doc.setFont('helvetica', 'bold');
+            doc.text('Detailed Ticket Information:', margin, yPos);
+            yPos += lineHeight;
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(9);
+            
+            ticketData.forEach((row) => {
+              checkPageBreak(lineHeight * 2);
+              doc.text(`Lottery #: ${row[0]}`, margin, yPos);
+              yPos += lineHeight;
+              doc.text(`Purchaser: ${row[1]} | Contact: ${row[2]} | Amount: ${row[6]}`, margin + 5, yPos);
+              yPos += lineHeight + 2;
+            });
+          }
+        } else {
+          // autoTable not available, use fallback
+          console.warn('autoTable function not available, using fallback');
+          checkPageBreak(20);
+          doc.setFontSize(11);
+          doc.setFont('helvetica', 'bold');
+          doc.text('Detailed Ticket Information:', margin, yPos);
+          yPos += lineHeight;
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9);
+          
+          ticketData.forEach((row) => {
+            checkPageBreak(lineHeight * 2);
+            doc.text(`Lottery #: ${row[0]}`, margin, yPos);
+            yPos += lineHeight;
+            doc.text(`Purchaser: ${row[1]} | Contact: ${row[2]} | Amount: ${row[6]}`, margin + 5, yPos);
+            yPos += lineHeight + 2;
+          });
+        }
+      } else {
+        checkPageBreak(lineHeight);
+        doc.setFontSize(11);
+        doc.text('No tickets found for this issuer', margin, yPos);
+      }
+
+      // Add page number to first page
+      doc.setPage(1);
+      doc.setFontSize(10);
+      doc.text(
+        'Page 1',
+        pageWidth / 2,
+        pageHeight - 10,
+        { align: 'center' }
+      );
+
+      // Save the PDF
+      const fileName = `${selectedIssuerForReport.issuer_name.replace(/[^a-z0-9]/gi, '_')}_Report_${new Date().toISOString().split('T')[0]}.pdf`;
+      doc.save(fileName);
+      toast.success('Report exported to PDF successfully');
+    } catch (error: any) {
+      console.error('Error exporting PDF:', error);
+      console.error('Error details:', {
+        message: error?.message,
+        stack: error?.stack,
+        name: error?.name
+      });
+      toast.error(`Failed to export PDF: ${error?.message || 'Unknown error'}`);
     }
   };
 
@@ -1052,14 +1459,23 @@ const DiaryManagement: React.FC = () => {
                       <td className="table-cell">
                         <div className="flex items-center space-x-2">
                           <button
+                            onClick={() => handleViewReport(issuer)}
+                            className="text-success-600 hover:text-success-800"
+                            title="View Report"
+                          >
+                            <FileText className="h-4 w-4" />
+                          </button>
+                          <button
                             onClick={() => handleEditIssuer(issuer)}
                             className="text-primary-600 hover:text-primary-800"
+                            title="Edit"
                           >
                             <Edit className="h-4 w-4" />
                           </button>
                           <button
                             onClick={() => handleDeleteIssuer(issuer.id)}
                             className="text-danger-600 hover:text-danger-800"
+                            title="Delete"
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
@@ -1069,6 +1485,176 @@ const DiaryManagement: React.FC = () => {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Modal */}
+      {showReportModal && selectedIssuerForReport && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div className="fixed inset-0 bg-secondary-900 bg-opacity-50 transition-opacity" onClick={() => setShowReportModal(false)}></div>
+            
+            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-strong transform transition-all sm:my-8 sm:align-middle sm:max-w-7xl sm:w-full">
+              <div className="bg-white px-4 pt-5 pb-4 sm:p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-medium text-secondary-900">
+                    Issuer Report - {selectedIssuerForReport.issuer_name}
+                  </h3>
+                  <div className="flex items-center space-x-2">
+                    {reportData && (
+                      <>
+                        <button
+                          onClick={exportToExcel}
+                          className="btn btn-success btn-sm"
+                        >
+                          <FileSpreadsheet className="h-4 w-4 mr-2" />
+                          Export Excel
+                        </button>
+                        <button
+                          onClick={exportToPDF}
+                          className="btn btn-primary btn-sm"
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          Export PDF
+                        </button>
+                      </>
+                    )}
+                    <button
+                      onClick={() => {
+                        setShowReportModal(false);
+                        setSelectedIssuerForReport(null);
+                        setReportData(null);
+                      }}
+                      className="text-secondary-400 hover:text-secondary-600"
+                    >
+                      <X className="h-6 w-6" />
+                    </button>
+                  </div>
+                </div>
+
+                {loadingReport ? (
+                  <div className="flex items-center justify-center h-64">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+                  </div>
+                ) : reportData ? (
+                  <div className="space-y-6">
+                    {/* Summary Section */}
+                    <div className="bg-secondary-50 rounded-lg p-4">
+                      <h4 className="text-md font-semibold text-secondary-900 mb-4">Summary</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="bg-white rounded p-3">
+                          <p className="text-sm text-secondary-600">Total Tickets Sold</p>
+                          <p className="text-2xl font-bold text-secondary-900">{reportData.summary.totalTicketsSold}</p>
+                        </div>
+                        <div className="bg-white rounded p-3">
+                          <p className="text-sm text-secondary-600">Total Diaries Issued</p>
+                          <p className="text-2xl font-bold text-primary-600">{reportData.summary.totalDiariesIssued}</p>
+                        </div>
+                        <div className="bg-white rounded p-3">
+                          <p className="text-sm text-secondary-600">Diaries Allotted</p>
+                          <p className="text-lg font-semibold text-secondary-900">
+                            {reportData.summary.diariesAllotted.length > 0 
+                              ? reportData.summary.diariesAllotted.join(', ')
+                              : 'None'}
+                          </p>
+                        </div>
+                        <div className="bg-white rounded p-3">
+                          <p className="text-sm text-secondary-600">Diaries Paid</p>
+                          <p className="text-lg font-semibold text-success-600">
+                            {reportData.summary.diariesPaid.length > 0 
+                              ? reportData.summary.diariesPaid.join(', ')
+                              : 'None'}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {/* Payment Status Table */}
+                      <div className="mt-4">
+                        <h5 className="text-sm font-semibold text-secondary-700 mb-2">Diary Payment Status</h5>
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-secondary-200">
+                            <thead className="bg-secondary-100">
+                              <tr>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-secondary-700">Diary Number</th>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-secondary-700">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-secondary-200">
+                              {reportData.summary.diariesAllottedStatus.map((item, idx) => (
+                                <tr key={idx}>
+                                  <td className="px-3 py-2 text-sm text-secondary-900">Diary {item.diaryNumber}</td>
+                                  <td className="px-3 py-2 text-sm">
+                                    <span className={`badge ${getStatusBadge(item.status)}`}>
+                                      {item.status.replace('_', ' ')}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Detailed Ticket Information */}
+                    <div>
+                      <h4 className="text-md font-semibold text-secondary-900 mb-4">Detailed Ticket Information</h4>
+                      <div className="overflow-x-auto">
+                        <table className="table">
+                          <thead className="table-header">
+                            <tr>
+                              <th className="table-header-cell">Lottery #</th>
+                              <th className="table-header-cell">Purchaser Name</th>
+                              <th className="table-header-cell">Contact</th>
+                              <th className="table-header-cell">Address</th>
+                              <th className="table-header-cell">Diary</th>
+                              <th className="table-header-cell">Purchase Date</th>
+                              <th className="table-header-cell">Amount Paid</th>
+                            </tr>
+                          </thead>
+                          <tbody className="table-body">
+                            {reportData.tickets.length > 0 ? (
+                              reportData.tickets.map((ticket) => (
+                                <tr key={ticket.id} className="table-row">
+                                  <td className="table-cell font-mono font-medium">
+                                    {formatLotteryNumber(ticket.lottery_number)}
+                                  </td>
+                                  <td className="table-cell font-medium">{ticket.purchaser_name}</td>
+                                  <td className="table-cell font-mono">{ticket.purchaser_contact}</td>
+                                  <td className="table-cell">
+                                    {ticket.purchaser_address || <span className="text-secondary-400">No address</span>}
+                                  </td>
+                                  <td className="table-cell">
+                                    <span className="badge badge-secondary">
+                                      Diary {ticket.diary?.diary_number || 'N/A'}
+                                    </span>
+                                  </td>
+                                  <td className="table-cell">
+                                    {new Date(ticket.purchase_date).toLocaleDateString('en-IN')}
+                                  </td>
+                                  <td className="table-cell font-medium">₹{ticket.amount_paid}</td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td colSpan={7} className="table-cell text-center text-secondary-500 py-8">
+                                  No tickets found for this issuer
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-secondary-500">
+                    No report data available
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
