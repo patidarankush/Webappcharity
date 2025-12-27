@@ -44,6 +44,11 @@ const TicketSales: React.FC = () => {
   const [showDiarySuggestions, setShowDiarySuggestions] = useState(false);
   const [filteredDiaries, setFilteredDiaries] = useState<Diary[]>([]);
   const [selectedDiary, setSelectedDiary] = useState<Diary | null>(null);
+  
+  // Ticket number search states
+  const [ticketSearchNumber, setTicketSearchNumber] = useState('');
+  const [searchedTicket, setSearchedTicket] = useState<TicketSale | null>(null);
+  const [searching, setSearching] = useState(false);
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<TicketFormData>();
 
@@ -403,6 +408,55 @@ const TicketSales: React.FC = () => {
     }, 200);
   };
 
+  const handleTicketSearch = async () => {
+    if (!ticketSearchNumber.trim()) {
+      toast.error('Please enter a lottery number');
+      return;
+    }
+
+    try {
+      setSearching(true);
+      setSearchedTicket(null);
+
+      // Parse the lottery number
+      const lotteryNum = parseLotteryNumber(ticketSearchNumber.trim());
+      
+      if (lotteryNum < 1 || lotteryNum > 39999) {
+        toast.error('Lottery number must be between 00001 and 39999');
+        setSearching(false);
+        return;
+      }
+
+      // Search for ticket in database
+      const { data: ticketData, error } = await supabase
+        .from('ticket_sales')
+        .select(`
+          *,
+          issuer:issuers(*),
+          diary:diaries(*)
+        `)
+        .eq('lottery_number', lotteryNum)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // No rows returned
+          toast.error(`No ticket found with lottery number ${formatLotteryNumber(lotteryNum)}`);
+        } else {
+          throw error;
+        }
+      } else if (ticketData) {
+        setSearchedTicket(ticketData);
+        toast.success(`Ticket ${formatLotteryNumber(lotteryNum)} found`);
+      }
+    } catch (error) {
+      console.error('Error searching ticket:', error);
+      toast.error('Failed to search ticket');
+    } finally {
+      setSearching(false);
+    }
+  };
+
   const filteredTickets = tickets.filter(ticket =>
     formatLotteryNumber(ticket.lottery_number).includes(searchTerm) ||
     ticket.lottery_number.toString().includes(searchTerm) ||
@@ -449,6 +503,111 @@ const TicketSales: React.FC = () => {
             onChange={(e) => setSearchTerm(e.target.value)}
             className="input pl-10"
           />
+        </div>
+      </div>
+
+      {/* Ticket Number Search */}
+      <div className="card">
+        <div className="card-header">
+          <h3 className="text-lg font-medium text-secondary-900">Search Ticket by Number</h3>
+        </div>
+        <div className="card-content">
+          <div className="flex items-center space-x-4">
+            <div className="flex-1">
+              <input
+                type="text"
+                placeholder="Enter lottery number (e.g., 00001, 28535)"
+                value={ticketSearchNumber}
+                onChange={(e) => {
+                  setTicketSearchNumber(e.target.value);
+                  if (!e.target.value.trim()) {
+                    setSearchedTicket(null);
+                  }
+                }}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    handleTicketSearch();
+                  }
+                }}
+                className="input"
+                maxLength={5}
+              />
+            </div>
+            <button
+              onClick={handleTicketSearch}
+              disabled={searching || !ticketSearchNumber.trim()}
+              className="btn btn-primary"
+            >
+              <Search className="h-4 w-4 mr-2" />
+              {searching ? 'Searching...' : 'Search'}
+            </button>
+            {searchedTicket && (
+              <button
+                onClick={() => {
+                  setTicketSearchNumber('');
+                  setSearchedTicket(null);
+                }}
+                className="btn btn-secondary"
+              >
+                <X className="h-4 w-4 mr-2" />
+                Clear
+              </button>
+            )}
+          </div>
+
+          {/* Display Searched Ticket */}
+          {searchedTicket && (
+            <div className="mt-6 border border-secondary-200 rounded-lg p-4 bg-secondary-50">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-md font-semibold text-secondary-900">
+                  Ticket Details - {formatLotteryNumber(searchedTicket.lottery_number)}
+                </h4>
+                <button
+                  onClick={() => handleEdit(searchedTicket)}
+                  className="btn btn-primary btn-sm"
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Ticket
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-secondary-600">Purchaser Name</p>
+                  <p className="font-medium text-secondary-900">{searchedTicket.purchaser_name}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-secondary-600">Contact Number</p>
+                  <p className="font-medium text-secondary-900 font-mono">{searchedTicket.purchaser_contact}</p>
+                </div>
+                {searchedTicket.purchaser_address && (
+                  <div className="md:col-span-2">
+                    <p className="text-sm text-secondary-600">Address</p>
+                    <p className="font-medium text-secondary-900">{searchedTicket.purchaser_address}</p>
+                  </div>
+                )}
+                <div>
+                  <p className="text-sm text-secondary-600">Issuer</p>
+                  <p className="font-medium text-secondary-900">{searchedTicket.issuer?.issuer_name || 'N/A'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-secondary-600">Diary Number</p>
+                  <p className="font-medium text-secondary-900">
+                    {searchedTicket.diary ? `Diary ${searchedTicket.diary.diary_number}` : 'N/A'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-secondary-600">Purchase Date</p>
+                  <p className="font-medium text-secondary-900">
+                    {new Date(searchedTicket.purchase_date).toLocaleDateString('en-IN')}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-secondary-600">Amount Paid</p>
+                  <p className="font-medium text-secondary-900">₹{searchedTicket.amount_paid}</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
