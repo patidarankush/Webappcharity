@@ -73,7 +73,6 @@ const DiaryManagement: React.FC = () => {
       totalDiariesIssued: number;
       diariesAllotted: number[];
       diariesPaid: number[];
-      diariesAllottedStatus: { diaryNumber: number; status: string }[];
     };
   } | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
@@ -515,18 +514,36 @@ const DiaryManagement: React.FC = () => {
       setSelectedIssuerForReport(issuer);
       setShowReportModal(true);
 
-      // Fetch all tickets for this issuer
-      const { data: ticketsData, error: ticketsError } = await supabase
-        .from('ticket_sales')
-        .select(`
-          *,
-          issuer:issuers(*),
-          diary:diaries(*)
-        `)
-        .eq('issuer_id', issuer.id)
-        .order('lottery_number', { ascending: true });
+      // Fetch all tickets for this issuer (no limit - fetch all)
+      let allTickets: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
 
-      if (ticketsError) throw ticketsError;
+      while (hasMore) {
+        const { data: ticketsPage, error: ticketsError } = await supabase
+          .from('ticket_sales')
+          .select(`
+            *,
+            issuer:issuers(*),
+            diary:diaries(*)
+          `)
+          .eq('issuer_id', issuer.id)
+          .order('lottery_number', { ascending: true })
+          .range(from, from + pageSize - 1);
+
+        if (ticketsError) throw ticketsError;
+
+        if (ticketsPage && ticketsPage.length > 0) {
+          allTickets = [...allTickets, ...ticketsPage];
+          from += pageSize;
+          hasMore = ticketsPage.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      const ticketsData = allTickets;
 
       // Fetch all allotments for this issuer
       const { data: allotmentsData, error: allotmentsError } = await supabase
@@ -549,11 +566,6 @@ const DiaryManagement: React.FC = () => {
       
       // Total diaries issued = diaries allotted + diaries paid (unique count)
       const allDiariesIssued = [...new Set([...diariesAllotted, ...diariesPaid])];
-      
-      const diariesAllottedStatus = (allotmentsData || []).map(a => ({
-        diaryNumber: a.diary?.diary_number || 0,
-        status: a.status
-      }));
 
       setReportData({
         tickets: ticketsData || [],
@@ -562,8 +574,7 @@ const DiaryManagement: React.FC = () => {
           totalTicketsSold: ticketsData?.length || 0,
           totalDiariesIssued: allDiariesIssued.length,
           diariesAllotted,
-          diariesPaid,
-          diariesAllottedStatus
+          diariesPaid
         }
       });
     } catch (error) {
@@ -707,72 +718,7 @@ const DiaryManagement: React.FC = () => {
         yPos += lineHeight;
       });
       
-      yPos += 5;
-
-      // Payment Status Table
-      const statusData = reportData.summary.diariesAllottedStatus.map(s => [
-        s.diaryNumber.toString(),
-        s.status.charAt(0).toUpperCase() + s.status.slice(1).replace('_', ' ')
-      ]);
-      
-      if (statusData.length > 0) {
-        checkPageBreak(30);
-        
-        // Check if autoTable is available
-        if (typeof (doc as any).autoTable === 'function') {
-          try {
-            (doc as any).autoTable({
-            startY: yPos,
-            head: [['Diary Number', 'Status']],
-            body: statusData,
-            theme: 'striped',
-            headStyles: { fillColor: [59, 130, 246] },
-            margin: { left: margin, right: margin },
-            styles: { fontSize: 10 },
-            didDrawPage: (data: any) => {
-              // Add page number on each page
-              doc.setFontSize(10);
-              doc.text(
-                `Page ${data.pageNumber}`,
-                pageWidth / 2,
-                pageHeight - 10,
-                { align: 'center' }
-              );
-            }
-          });
-
-            yPos = (doc as any).lastAutoTable.finalY + 10;
-          } catch (tableError) {
-            console.error('Error creating status table:', tableError);
-            // Fallback: just list the statuses as text
-            checkPageBreak(20);
-            doc.setFontSize(11);
-            doc.setFont('helvetica', 'bold');
-            doc.text('Diary Payment Status:', margin, yPos);
-            yPos += lineHeight;
-            doc.setFont('helvetica', 'normal');
-            statusData.forEach(([diary, status]) => {
-              checkPageBreak(lineHeight);
-              doc.text(`Diary ${diary}: ${status}`, margin + 5, yPos);
-              yPos += lineHeight;
-            });
-          }
-        } else {
-          // autoTable not available, use fallback
-          console.warn('autoTable function not available, using fallback');
-          checkPageBreak(20);
-          doc.setFontSize(11);
-          doc.setFont('helvetica', 'bold');
-          doc.text('Diary Payment Status:', margin, yPos);
-          yPos += lineHeight;
-          doc.setFont('helvetica', 'normal');
-          statusData.forEach(([diary, status]) => {
-            checkPageBreak(lineHeight);
-            doc.text(`Diary ${diary}: ${status}`, margin + 5, yPos);
-            yPos += lineHeight;
-          });
-        }
-      }
+      yPos += 10;
 
       // Detailed Ticket Table
       const ticketData = reportData.tickets.map(ticket => {
@@ -1567,33 +1513,6 @@ const DiaryManagement: React.FC = () => {
                               ? reportData.summary.diariesPaid.join(', ')
                               : 'None'}
                           </p>
-                        </div>
-                      </div>
-                      
-                      {/* Payment Status Table */}
-                      <div className="mt-4">
-                        <h5 className="text-sm font-semibold text-secondary-700 mb-2">Diary Payment Status</h5>
-                        <div className="overflow-x-auto">
-                          <table className="min-w-full divide-y divide-secondary-200">
-                            <thead className="bg-secondary-100">
-                              <tr>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-secondary-700">Diary Number</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-secondary-700">Status</th>
-                              </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-secondary-200">
-                              {reportData.summary.diariesAllottedStatus.map((item, idx) => (
-                                <tr key={idx}>
-                                  <td className="px-3 py-2 text-sm text-secondary-900">Diary {item.diaryNumber}</td>
-                                  <td className="px-3 py-2 text-sm">
-                                    <span className={`badge ${getStatusBadge(item.status)}`}>
-                                      {item.status.replace('_', ' ')}
-                                    </span>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
                         </div>
                       </div>
                     </div>
