@@ -9,7 +9,8 @@ import {
   X,
   Building2,
   LogOut,
-  User
+  User,
+  Trophy
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
@@ -38,6 +39,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: 'Ticket Sales', href: '/tickets', icon: Ticket },
     { name: 'Diary Management', href: '/diaries', icon: BookOpen },
     { name: 'Search', href: '/search', icon: Search },
+    { name: 'Winners', href: '/winners', icon: Trophy },
   ];
 
   const isActive = (href: string) => {

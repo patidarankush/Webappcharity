@@ -8,22 +8,36 @@ import Dashboard from './pages/Dashboard';
 import TicketSales from './pages/TicketSales';
 import DiaryManagement from './pages/DiaryManagement';
 import Search from './pages/Search';
+import Winners from './pages/Winners';
+import PublicWinners from './pages/PublicWinners';
 
 function App() {
   return (
     <AuthProvider>
       <Router>
         <div className="min-h-screen bg-secondary-50">
-          <ProtectedRoute>
-            <Layout>
-              <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/tickets" element={<TicketSales />} />
-                <Route path="/diaries" element={<DiaryManagement />} />
-                <Route path="/search" element={<Search />} />
-              </Routes>
-            </Layout>
-          </ProtectedRoute>
+          <Routes>
+            {/* Public route - no authentication required */}
+            <Route path="/public-winners" element={<PublicWinners />} />
+            
+            {/* Protected routes - require authentication */}
+            <Route
+              path="/*"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Routes>
+                      <Route path="/" element={<Dashboard />} />
+                      <Route path="/tickets" element={<TicketSales />} />
+                      <Route path="/diaries" element={<DiaryManagement />} />
+                      <Route path="/search" element={<Search />} />
+                      <Route path="/winners" element={<Winners />} />
+                    </Routes>
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
           <Toaster 
             position="top-right"
             toastOptions={{

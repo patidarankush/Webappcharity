@@ -97,6 +97,64 @@ export interface IssuerPerformance {
   collection_percentage: number;
 }
 
+export interface LotteryWinner {
+  id: string;
+  lottery_number: number;
+  ticket_sale_id?: string;
+  prize_category: string;
+  prize_quantity: number;
+  winner_name: string;
+  winner_contact: string;
+  winner_address?: string;
+  diary_number?: number;
+  registered_at: string;
+  registered_by?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+  // Joined data
+  ticket?: TicketSale;
+}
+
+export interface PrizeCategory {
+  id: string;
+  category_name: string;
+  total_quantity: number;
+  created_at: string;
+}
+
+// Prize categories with quantities
+export const PRIZE_CATEGORIES = [
+  { name: 'THAR CAR', quantity: 1 },
+  { name: 'SWIFT CAR', quantity: 1 },
+  { name: 'E-Rickshaw', quantity: 1 },
+  { name: 'Bullet Bike', quantity: 1 },
+  { name: 'HF delux Bike', quantity: 5 },
+  { name: 'Electric Bike', quantity: 3 },
+  { name: 'AC 1Ton', quantity: 1 },
+  { name: 'Laptop', quantity: 3 },
+  { name: '32 Inch LED TV', quantity: 5 },
+  { name: 'Fridge', quantity: 5 },
+  { name: 'Washing Machine', quantity: 5 },
+  { name: 'Sewing Machine', quantity: 5 },
+  { name: 'Sports Cycle', quantity: 5 },
+  { name: '5G Mobile', quantity: 11 },
+  { name: 'Cooler', quantity: 11 },
+  { name: 'Child EV Bike', quantity: 10 },
+  { name: 'Home Theater', quantity: 5 },
+  { name: 'Electric Water Heater', quantity: 5 },
+  { name: 'Battery Spray Pump', quantity: 27 },
+  { name: 'Mixer', quantity: 10 },
+  { name: 'Induction stove', quantity: 10 },
+  { name: 'Ceiling Fan', quantity: 10 },
+  { name: 'Smart Watch', quantity: 11 },
+  { name: 'Gas Stove', quantity: 27 },
+  { name: 'Helmet', quantity: 54 },
+  { name: 'Silver Coin', quantity: 54 },
+  { name: 'Wall Clock', quantity: 108 },
+  { name: 'Photo Frame', quantity: 108 }
+] as const;
+
 // Helper function to get diary number from lottery number
 export function getDiaryFromLotteryNumber(lotteryNumber: number): number {
   if (lotteryNumber <= 39996) {

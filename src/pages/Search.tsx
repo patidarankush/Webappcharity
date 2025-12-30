@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, TicketSale, DiaryAllotment, Issuer, Diary, formatLotteryNumber, parseLotteryNumber, getDiaryFromLotteryNumber } from '../lib/supabase';
+import { supabase, TicketSale, DiaryAllotment, Issuer, Diary, formatLotteryNumber, parseLotteryNumber, getDiaryFromLotteryNumber, LotteryWinner, PRIZE_CATEGORIES } from '../lib/supabase';
 import { 
   Search as SearchIcon, 
   Filter, 
@@ -14,7 +14,9 @@ import {
   AlertCircle,
   CheckCircle,
   Clock,
-  RotateCcw
+  RotateCcw,
+  Trophy,
+  Award
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -52,6 +54,11 @@ const Search: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'tickets' | 'allotments'>('tickets');
   const [showFilters, setShowFilters] = useState(false);
   const [quickSearchTerm, setQuickSearchTerm] = useState('');
+  
+  // Winner registration states
+  const [registeringWinner, setRegisteringWinner] = useState<string | null>(null);
+  const [selectedPrize, setSelectedPrize] = useState<{ [key: string]: string }>({});
+  const [existingWinners, setExistingWinners] = useState<Set<number>>(new Set());
 
   const handleFilterChange = (key: keyof SearchFilters, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }));
@@ -264,6 +271,136 @@ const Search: React.FC = () => {
       toast.error('Failed to search for lottery number');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fetch existing winners on component mount
+  useEffect(() => {
+    const fetchExistingWinners = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('lottery_winners')
+          .select('lottery_number');
+        
+        if (error) throw error;
+        
+        if (data) {
+          setExistingWinners(new Set(data.map(w => w.lottery_number)));
+        }
+      } catch (error) {
+        console.error('Error fetching existing winners:', error);
+      }
+    };
+    
+    fetchExistingWinners();
+  }, []);
+
+  const checkIfAlreadyWon = (lotteryNumber: number): boolean => {
+    return existingWinners.has(lotteryNumber);
+  };
+
+  const getPrizeQuantity = (prizeName: string): number => {
+    const prize = PRIZE_CATEGORIES.find(p => p.name === prizeName);
+    return prize ? prize.quantity : 0;
+  };
+
+  const getRemainingQuantity = async (prizeName: string): Promise<number> => {
+    try {
+      const { data, error } = await supabase
+        .from('lottery_winners')
+        .select('id')
+        .eq('prize_category', prizeName);
+      
+      if (error) throw error;
+      
+      const totalQuantity = getPrizeQuantity(prizeName);
+      const usedQuantity = data?.length || 0;
+      return totalQuantity - usedQuantity;
+    } catch (error) {
+      console.error('Error getting remaining quantity:', error);
+      return 0;
+    }
+  };
+
+  const registerWinner = async (ticket: TicketSale) => {
+    const lotteryNumber = ticket.lottery_number;
+    const selectedPrizeCategory = selectedPrize[ticket.id];
+
+    if (!selectedPrizeCategory) {
+      toast.error('Please select a prize category');
+      return;
+    }
+
+    // Check if already won
+    if (checkIfAlreadyWon(lotteryNumber)) {
+      toast.error(`Lottery number ${formatLotteryNumber(lotteryNumber)} has already won a prize!`, {
+        duration: 5000
+      });
+      return;
+    }
+
+    // Check remaining quantity
+    const remaining = await getRemainingQuantity(selectedPrizeCategory);
+    if (remaining <= 0) {
+      toast.error(`No ${selectedPrizeCategory} prizes remaining!`);
+      return;
+    }
+
+    try {
+      setRegisteringWinner(ticket.id);
+
+      const prizeQuantity = getPrizeQuantity(selectedPrizeCategory);
+      const diaryNumber = ticket.diary ? getDiaryFromLotteryNumber(lotteryNumber) : undefined;
+
+      const { data, error } = await supabase
+        .from('lottery_winners')
+        .insert([{
+          lottery_number: lotteryNumber,
+          ticket_sale_id: ticket.id,
+          prize_category: selectedPrizeCategory,
+          prize_quantity: prizeQuantity,
+          winner_name: ticket.purchaser_name,
+          winner_contact: ticket.purchaser_contact,
+          winner_address: ticket.purchaser_address,
+          diary_number: diaryNumber
+        }])
+        .select()
+        .single();
+
+      if (error) {
+        if (error.code === '23505') { // Unique constraint violation
+          toast.error(`Lottery number ${formatLotteryNumber(lotteryNumber)} has already won a prize!`, {
+            duration: 5000
+          });
+          // Refresh existing winners
+          const { data: winners } = await supabase
+            .from('lottery_winners')
+            .select('lottery_number');
+          if (winners) {
+            setExistingWinners(new Set(winners.map(w => w.lottery_number)));
+          }
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      // Update existing winners set
+      setExistingWinners(prev => new Set(prev).add(lotteryNumber));
+      
+      // Clear selected prize
+      setSelectedPrize(prev => {
+        const newState = { ...prev };
+        delete newState[ticket.id];
+        return newState;
+      });
+
+      toast.success(`Winner registered! ${ticket.purchaser_name} won ${selectedPrizeCategory}`);
+    } catch (error: any) {
+      console.error('Error registering winner:', error);
+      toast.error(`Failed to register winner: ${error.message || 'Unknown error'}`);
+    } finally {
+      setRegisteringWinner(null);
     }
   };
 
@@ -629,6 +766,67 @@ const Search: React.FC = () => {
               <p className="text-sm text-secondary-700"><strong>Total Tickets:</strong> {searchResults.tickets[0].diary?.total_tickets}</p>
             </div>
           </div>
+          
+          {/* Winner Registration Section */}
+          <div className="mt-6 bg-gradient-to-r from-success-50 to-primary-50 rounded-lg p-6 border border-success-200">
+            <h4 className="font-semibold text-secondary-900 mb-4 flex items-center">
+              <Trophy className="h-5 w-5 mr-2 text-success-600" />
+              Register as Lottery Winner
+            </h4>
+            {checkIfAlreadyWon(searchResults.tickets[0].lottery_number) ? (
+              <div className="bg-warning-50 border border-warning-200 rounded-lg p-4">
+                <div className="flex items-center">
+                  <AlertCircle className="h-5 w-5 text-warning-600 mr-2" />
+                  <div>
+                    <p className="font-semibold text-warning-900">This lottery number has already won a prize!</p>
+                    <p className="text-sm text-warning-700 mt-1">A prize has already been registered for this lottery number.</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-4">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-secondary-700 mb-2">
+                    Select Prize Category
+                  </label>
+                  <select
+                    value={selectedPrize[searchResults.tickets[0].id] || ''}
+                    onChange={(e) => setSelectedPrize(prev => ({
+                      ...prev,
+                      [searchResults.tickets[0].id]: e.target.value
+                    }))}
+                    className="input w-full"
+                  >
+                    <option value="">Select Prize Category</option>
+                    {PRIZE_CATEGORIES.map((prize) => (
+                      <option key={prize.name} value={prize.name}>
+                        {prize.name} (Total: {prize.quantity})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="pt-6">
+                  <button
+                    onClick={() => registerWinner(searchResults.tickets[0])}
+                    disabled={!selectedPrize[searchResults.tickets[0].id] || registeringWinner === searchResults.tickets[0].id}
+                    className="btn btn-success"
+                  >
+                    {registeringWinner === searchResults.tickets[0].id ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white inline-block mr-2"></div>
+                        Registering...
+                      </>
+                    ) : (
+                      <>
+                        <Award className="h-4 w-4 mr-2" />
+                        Register Winner
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -673,6 +871,7 @@ const Search: React.FC = () => {
                       <th className="table-header-cell">Diary</th>
                       <th className="table-header-cell">Date</th>
                       <th className="table-header-cell">Amount</th>
+                      <th className="table-header-cell">Register Winner</th>
                     </tr>
                   </thead>
                   <tbody className="table-body">
@@ -702,6 +901,51 @@ const Search: React.FC = () => {
                           {new Date(ticket.purchase_date).toLocaleDateString('en-IN')}
                         </td>
                         <td className="table-cell font-medium">₹{ticket.amount_paid}</td>
+                        <td className="table-cell">
+                          {checkIfAlreadyWon(ticket.lottery_number) ? (
+                            <span className="badge badge-success">
+                              <Trophy className="h-3 w-3 inline mr-1" />
+                              Already Won
+                            </span>
+                          ) : (
+                            <div className="flex items-center space-x-2">
+                              <select
+                                value={selectedPrize[ticket.id] || ''}
+                                onChange={(e) => setSelectedPrize(prev => ({
+                                  ...prev,
+                                  [ticket.id]: e.target.value
+                                }))}
+                                className="input input-sm text-xs"
+                                style={{ minWidth: '150px' }}
+                              >
+                                <option value="">Select Prize</option>
+                                {PRIZE_CATEGORIES.map((prize) => (
+                                  <option key={prize.name} value={prize.name}>
+                                    {prize.name} ({prize.quantity})
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                onClick={() => registerWinner(ticket)}
+                                disabled={!selectedPrize[ticket.id] || registeringWinner === ticket.id}
+                                className="btn btn-success btn-sm"
+                                title="Register as Winner"
+                              >
+                                {registeringWinner === ticket.id ? (
+                                  <>
+                                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white inline-block mr-1"></div>
+                                    Registering...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Award className="h-3 w-3 mr-1" />
+                                    Register
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
