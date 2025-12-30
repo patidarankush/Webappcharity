@@ -180,17 +180,35 @@ const DiaryManagement: React.FC = () => {
     try {
       setLoading(true);
       
-      // Fetch allotments with joined data
-      const { data: allotmentsData, error: allotmentsError } = await supabase
-        .from('diary_allotments')
-        .select(`
-          *,
-          diary:diaries(*),
-          issuer:issuers(*)
-        `)
-        .order('created_at', { ascending: false });
+      // Fetch all allotments with joined data (no limit - fetch all using pagination)
+      let allAllotments: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
 
-      if (allotmentsError) throw allotmentsError;
+      while (hasMore) {
+        const { data: allotmentsPage, error: allotmentsError } = await supabase
+          .from('diary_allotments')
+          .select(`
+            *,
+            diary:diaries(*),
+            issuer:issuers(*)
+          `)
+          .order('created_at', { ascending: false })
+          .range(from, from + pageSize - 1);
+
+        if (allotmentsError) throw allotmentsError;
+
+        if (allotmentsPage && allotmentsPage.length > 0) {
+          allAllotments = [...allAllotments, ...allotmentsPage];
+          from += pageSize;
+          hasMore = allotmentsPage.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      const allotmentsData = allAllotments;
 
       // Fetch issuers
       const { data: issuersData, error: issuersError } = await supabase
@@ -200,15 +218,33 @@ const DiaryManagement: React.FC = () => {
 
       if (issuersError) throw issuersError;
 
-      // Fetch diaries - use range queries to get all 1819 diaries
-      const { data: diariesData, error: diariesError } = await supabase
-        .from('diaries')
-        .select('*')
-        .order('diary_number')
-        .gte('diary_number', 1)
-        .lte('diary_number', 1819);
+      // Fetch all diaries - use pagination to get all 1819 diaries
+      let allDiaries: any[] = [];
+      let diariesFrom = 0;
+      const diariesPageSize = 1000;
+      let hasMoreDiaries = true;
 
-      if (diariesError) throw diariesError;
+      while (hasMoreDiaries) {
+        const { data: diariesPage, error: diariesError } = await supabase
+          .from('diaries')
+          .select('*')
+          .order('diary_number')
+          .gte('diary_number', 1)
+          .lte('diary_number', 1819)
+          .range(diariesFrom, diariesFrom + diariesPageSize - 1);
+
+        if (diariesError) throw diariesError;
+
+        if (diariesPage && diariesPage.length > 0) {
+          allDiaries = [...allDiaries, ...diariesPage];
+          diariesFrom += diariesPageSize;
+          hasMoreDiaries = diariesPage.length === diariesPageSize;
+        } else {
+          hasMoreDiaries = false;
+        }
+      }
+
+      const diariesData = allDiaries;
 
       setAllotments(allotmentsData || []);
       setIssuers(issuersData || []);
