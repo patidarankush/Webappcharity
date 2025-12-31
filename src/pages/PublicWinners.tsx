@@ -258,6 +258,41 @@ const PublicWinners: React.FC = () => {
     return category.quantity - used;
   };
 
+  // Prize name translation to Hindi
+  const getPrizeNameInHindi = (prizeName: string): string => {
+    const translations: { [key: string]: string } = {
+      'THAR CAR': 'थार कार',
+      'SWIFT CAR': 'स्विफ्ट कार',
+      'E-Rickshaw': 'ई-रिक्शा',
+      'Bullet Bike': 'बुलेट बाइक',
+      'HF delux Bike': 'एचएफ डीलक्स बाइक',
+      'Electric Bike': 'इलेक्ट्रिक बाइक',
+      'AC 1Ton': 'एसी 1 टन',
+      'Laptop': 'लैपटॉप',
+      '32 Inch LED TV': '32 इंच एलईडी टीवी',
+      'Fridge': 'फ्रिज',
+      'Washing Machine': 'वाशिंग मशीन',
+      'Sewing Machine': 'सिलाई मशीन',
+      'Sports Cycle': 'स्पोर्ट्स साइकिल',
+      '5G Mobile': '5जी मोबाइल',
+      'Cooler': 'कूलर',
+      'Child EV Bike': 'चाइल्ड ईवी बाइक',
+      'Home Theater': 'होम थिएटर',
+      'Electric Water Heater': 'इलेक्ट्रिक वॉटर हीटर',
+      'Battery Spray Pump': 'बैटरी स्प्रे पंप',
+      'Mixer': 'मिक्सर',
+      'Induction stove': 'इंडक्शन स्टोव',
+      'Ceiling Fan': 'सीलिंग फैन',
+      'Smart Watch': 'स्मार्ट वॉच',
+      'Gas Stove': 'गैस स्टोव',
+      'Helmet': 'हेलमेट',
+      'Silver Coin': 'सिल्वर कॉइन',
+      'Wall Clock': 'वॉल क्लॉक',
+      'Photo Frame': 'फोटो फ्रेम'
+    };
+    return translations[prizeName] || prizeName;
+  };
+
 
   const patternUrl = "data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E";
 
@@ -273,7 +308,7 @@ const PublicWinners: React.FC = () => {
             <div className="animate-spin rounded-full h-20 w-20 border-4 border-yellow-400 border-t-transparent mx-auto mb-4 shadow-[0_0_20px_rgba(250,204,21,0.5)]"></div>
             <div className="absolute inset-0 animate-ping rounded-full h-20 w-20 border-4 border-yellow-400 opacity-20"></div>
           </div>
-          <p className="text-yellow-400 text-xl font-bold tracking-wider animate-pulse">LOADING WINNERS...</p>
+          <p className="text-yellow-400 text-xl font-bold tracking-wider animate-pulse">विजेताओं को लोड कर रहे हैं...</p>
         </div>
       </div>
     );
@@ -314,12 +349,12 @@ const PublicWinners: React.FC = () => {
           <div className="absolute inset-0 blur-3xl bg-yellow-400 opacity-20 animate-pulse"></div>
           
           <p className="text-xl md:text-2xl font-bold text-yellow-200 mb-3 tracking-wider relative z-10 drop-shadow-[0_0_10px_rgba(250,204,21,0.8)]">
-            SHRI SHYAM SANWALIYA CHARITABLE TRUST, DHARGAON
+            श्री श्याम सांवलिया चैरिटेबल ट्रस्ट, धरगांव
           </p>
           
-          <div className="relative z-10">
+          <div className="relative z-10 px-4 sm:px-6 md:px-8">
             <h1 className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-yellow-200 to-yellow-400 mb-4 tracking-tight drop-shadow-[0_0_20px_rgba(250,204,21,0.9)] animate-pulse">
-              LOTTERY WINNERS
+              लॉटरी विजेता
             </h1>
             
             {/* Decorative Lines */}
@@ -344,17 +379,17 @@ const PublicWinners: React.FC = () => {
               </div>
               
               <div className="text-center mb-2 sm:mb-4">
-                <div className="inline-flex items-center gap-2 sm:gap-3 bg-yellow-400 px-3 sm:px-4 md:px-6 py-1.5 sm:py-2 md:py-3 rounded-full shadow-[0_0_20px_rgba(250,204,21,0.8)]">
-                  <Trophy className="h-5 w-5 sm:h-6 sm:w-6 md:h-8 md:w-8 text-yellow-900 animate-bounce" />
-                  <span className="text-base sm:text-lg md:text-xl lg:text-2xl font-black text-yellow-900 tracking-wider">JACKPOT WINNER</span>
-                  <Trophy className="h-5 w-5 sm:h-6 sm:w-6 md:h-8 md:w-8 text-yellow-900 animate-bounce" />
+                <div className="inline-flex items-center gap-2 sm:gap-3 bg-yellow-400 px-4 sm:px-6 md:px-8 py-2 sm:py-3 md:py-4 rounded-full shadow-[0_0_20px_rgba(250,204,21,0.8)]">
+                  <Trophy className="h-6 w-6 sm:h-8 sm:w-8 md:h-10 md:w-10 text-yellow-900 animate-bounce" />
+                  <span className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black text-yellow-900 tracking-wider">जैकपॉट विजेता</span>
+                  <Trophy className="h-6 w-6 sm:h-8 sm:w-8 md:h-10 md:w-10 text-yellow-900 animate-bounce" />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2 sm:gap-3 md:gap-4 mb-2 sm:mb-4">
                 {/* Lottery Number - Casino Style */}
                 <div className="bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-lg p-2 sm:p-3 md:p-4 border-2 border-yellow-300 shadow-[0_0_20px_rgba(250,204,21,0.5)] transform hover:scale-105 transition-transform">
-                  <p className="text-yellow-900 font-bold text-xs mb-1 sm:mb-2 tracking-wider">LOTTERY NUMBER</p>
+                  <p className="text-yellow-900 font-black text-sm sm:text-base md:text-lg mb-1 sm:mb-2 tracking-wider">लॉटरी नंबर</p>
                   <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black text-yellow-900 font-mono tracking-wider">
                     {formatLotteryNumber(lastWinner.lottery_number)}
                   </p>
@@ -362,25 +397,25 @@ const PublicWinners: React.FC = () => {
 
                 {/* Winner Name */}
                 <div className="bg-gradient-to-br from-red-600 to-red-700 rounded-lg p-2 sm:p-3 md:p-4 border-2 border-red-400 shadow-[0_0_20px_rgba(239,68,68,0.5)] transform hover:scale-105 transition-transform">
-                  <p className="text-red-50 font-bold text-xs mb-1 sm:mb-2 tracking-wider">WINNER NAME</p>
+                  <p className="text-red-50 font-black text-sm sm:text-base md:text-lg mb-1 sm:mb-2 tracking-wider">विजेता का नाम</p>
                   <p className="text-base sm:text-lg md:text-xl lg:text-2xl font-black text-white break-words">{lastWinner.winner_name.toUpperCase()}</p>
                 </div>
 
                 {/* Prize Won */}
                 <div className="bg-gradient-to-br from-green-600 to-green-700 rounded-lg p-2 sm:p-3 md:p-4 border-2 border-green-400 shadow-[0_0_20px_rgba(34,197,94,0.5)] transform hover:scale-105 transition-transform">
-                  <p className="text-green-50 font-bold text-xs mb-1 sm:mb-2 tracking-wider">PRIZE WON</p>
-                  <p className="text-base sm:text-lg md:text-xl lg:text-2xl font-black text-white break-words">{lastWinner.prize_category.toUpperCase()}</p>
+                  <p className="text-green-50 font-black text-sm sm:text-base md:text-lg mb-1 sm:mb-2 tracking-wider">पुरस्कार</p>
+                  <p className="text-base sm:text-lg md:text-xl lg:text-2xl font-black text-white break-words">{getPrizeNameInHindi(lastWinner.prize_category)}</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3 md:gap-4">
                 <div className="bg-gray-800 rounded-lg p-2 sm:p-3 border-2 border-gray-600">
-                  <p className="text-yellow-300 font-bold text-xs mb-1 tracking-wider">CONTACT</p>
+                  <p className="text-yellow-300 font-black text-sm sm:text-base mb-1 tracking-wider">संपर्क</p>
                   <p className="font-mono text-white text-xs sm:text-sm md:text-base lg:text-lg break-all">{lastWinner.winner_contact}</p>
                 </div>
                 {lastWinner.winner_address && (
                   <div className="bg-gray-800 rounded-lg p-2 sm:p-3 border-2 border-gray-600">
-                    <p className="text-yellow-300 font-bold text-xs mb-1 tracking-wider">ADDRESS</p>
+                    <p className="text-yellow-300 font-black text-sm sm:text-base mb-1 tracking-wider">पता</p>
                     <p className="text-white text-xs sm:text-sm md:text-base break-words">{lastWinner.winner_address}</p>
                   </div>
                 )}
@@ -425,18 +460,18 @@ const PublicWinners: React.FC = () => {
                     <div className="flex items-center gap-1.5 sm:gap-2">
                       <Award className={`h-5 w-5 sm:h-6 sm:w-6 md:h-7 md:w-7 ${colorScheme.icon}`} />
                       <h3 className="text-sm sm:text-base md:text-lg font-black text-white tracking-wider break-words">
-                        {category.name.toUpperCase()}
+                        {getPrizeNameInHindi(category.name)}
                       </h3>
                     </div>
                     <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                       <div className="bg-yellow-500 px-2 py-1 rounded-full border border-yellow-600">
                         <span className="text-yellow-950 font-black text-xs">
-                          {categoryWinners.length}/{category.quantity} WON
+                          {categoryWinners.length}/{category.quantity} जीते
                         </span>
                       </div>
                       <div className={`px-2 py-1 rounded-full border ${remaining > 0 ? 'bg-green-500 border-green-600' : 'bg-red-500 border-red-600'}`}>
                         <span className={`font-black text-xs ${remaining > 0 ? 'text-green-950' : 'text-red-950'}`}>
-                          {remaining} LEFT
+                          {remaining} बचे
                         </span>
                       </div>
                     </div>
@@ -448,10 +483,10 @@ const PublicWinners: React.FC = () => {
                       <table className="w-full table-auto">
                         <thead>
                           <tr className="border-b-2 border-gray-700">
-                            <th className="text-left py-1 sm:py-2 px-1 sm:px-2 text-yellow-300 font-bold text-xs tracking-wider">LOTTERY #</th>
-                            <th className="text-left py-1 sm:py-2 px-1 sm:px-2 text-yellow-300 font-bold text-xs tracking-wider">WINNER</th>
-                            <th className="text-left py-1 sm:py-2 px-1 sm:px-2 text-yellow-300 font-bold text-xs tracking-wider hidden sm:table-cell">CONTACT</th>
-                            <th className="text-left py-1 sm:py-2 px-1 sm:px-2 text-yellow-300 font-bold text-xs tracking-wider hidden md:table-cell">ADDRESS</th>
+                            <th className="text-left py-1 sm:py-2 px-1 sm:px-2 text-yellow-300 font-bold text-xs tracking-wider">लॉटरी #</th>
+                            <th className="text-left py-1 sm:py-2 px-1 sm:px-2 text-yellow-300 font-bold text-xs tracking-wider">विजेता</th>
+                            <th className="text-left py-1 sm:py-2 px-1 sm:px-2 text-yellow-300 font-bold text-xs tracking-wider hidden sm:table-cell">संपर्क</th>
+                            <th className="text-left py-1 sm:py-2 px-1 sm:px-2 text-yellow-300 font-bold text-xs tracking-wider hidden md:table-cell">पता</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -473,7 +508,7 @@ const PublicWinners: React.FC = () => {
                               </td>
                               <td className="py-1 sm:py-1.5 px-1 sm:px-2 hidden md:table-cell">
                                 <span className="text-gray-300 text-xs break-words">
-                                  {winner.winner_address || <span className="italic text-gray-400">No address</span>}
+                                  {winner.winner_address || <span className="italic text-gray-400">पता नहीं</span>}
                                 </span>
                               </td>
                             </tr>
@@ -484,7 +519,7 @@ const PublicWinners: React.FC = () => {
                   ) : (
                     <div className="text-center py-4 sm:py-6">
                       <div className="inline-block bg-gray-800 rounded-full p-3 sm:p-4 border-2 border-gray-700">
-                        <p className="text-gray-300 font-bold tracking-wider text-xs sm:text-sm">NO WINNERS YET</p>
+                        <p className="text-gray-300 font-bold tracking-wider text-xs sm:text-sm">अभी तक कोई विजेता नहीं</p>
                       </div>
                     </div>
                   )}
@@ -498,10 +533,10 @@ const PublicWinners: React.FC = () => {
         <div className="text-center mt-4 sm:mt-6 mb-2 sm:mb-4 relative">
           <div className="inline-block bg-gradient-to-r from-yellow-500 to-yellow-600 px-3 sm:px-4 md:px-6 py-2 sm:py-3 rounded-full border-2 border-yellow-300 shadow-[0_0_20px_rgba(250,204,21,0.5)]">
             <p className="text-yellow-950 font-black text-xs sm:text-sm md:text-base tracking-wider">
-              TOTAL WINNERS: {winners.length}
+              कुल विजेता: {winners.length}
             </p>
             <p className="text-yellow-900 text-xs mt-1 font-semibold">
-              Last Updated: {new Date().toLocaleString('en-IN')}
+              अंतिम अपडेट: {new Date().toLocaleString('en-IN')}
             </p>
           </div>
         </div>
