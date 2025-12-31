@@ -3,48 +3,31 @@ import { supabase, LotteryWinner, PRIZE_CATEGORIES, formatLotteryNumber } from '
 import { 
   Trophy,
   Award,
-  Phone,
-  MapPin,
-  Search as SearchIcon
+  Sparkles,
+  Star,
+  Coins
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import toast from 'react-hot-toast';
 
 const PublicWinners: React.FC = () => {
   const [winners, setWinners] = useState<LotteryWinner[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [lastWinner, setLastWinner] = useState<LotteryWinner | null>(null);
-  const [searchedWinner, setSearchedWinner] = useState<LotteryWinner | null>(null);
-  const [searchPerformed, setSearchPerformed] = useState(false);
-  const [searching, setSearching] = useState(false);
-  const [contactNumber1, setContactNumber1] = useState(() => {
-    const saved = localStorage.getItem('publicWinners_contact1');
-    return saved || '+91 9876543210';
-  });
-  const [contactNumber2, setContactNumber2] = useState(() => {
-    const saved = localStorage.getItem('publicWinners_contact2');
-    return saved || '+91 9876543211';
-  });
   const previousLastWinnerRef = useRef<string | null>(null);
   const confettiIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Save contact numbers to localStorage when changed
   useEffect(() => {
-    localStorage.setItem('publicWinners_contact1', contactNumber1);
-  }, [contactNumber1]);
-
-  useEffect(() => {
-    localStorage.setItem('publicWinners_contact2', contactNumber2);
-  }, [contactNumber2]);
-
-  useEffect(() => {
-    fetchWinners();
+    // Initial fetch
+    fetchWinners(true);
     
-    // Set up real-time subscription for new winners
+    // Set up real-time subscription for new winners and updates
     const channel = supabase
-      .channel('lottery_winners_changes')
+      .channel('lottery_winners_changes', {
+        config: {
+          broadcast: { self: true },
+          presence: { key: '' }
+        }
+      })
       .on(
         'postgres_changes',
         {
@@ -52,16 +35,75 @@ const PublicWinners: React.FC = () => {
           schema: 'public',
           table: 'lottery_winners'
         },
-        (payload) => {
-          console.log('New winner registered:', payload.new);
-          fetchWinners();
+        async (payload) => {
+          console.log('🆕 New winner registered:', payload.new);
+          // Force immediate refresh of all data
+          await fetchWinners(false);
+          // Trigger fireworks for new winner
           triggerFireworks();
+          console.log('✅ Page updated with new winner data');
         }
       )
-      .subscribe();
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'lottery_winners'
+        },
+        async (payload) => {
+          console.log('🔄 Winner updated:', payload.new);
+          // Force immediate refresh of all data
+          await fetchWinners(false);
+          console.log('✅ Page updated with winner changes');
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'lottery_winners'
+        },
+        async () => {
+          console.log('🗑️ Winner deleted');
+          // Force immediate refresh of all data
+          await fetchWinners(false);
+          console.log('✅ Page updated after winner deletion');
+        }
+      )
+      .subscribe((status, err) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Real-time subscription ACTIVE - Page will auto-update on database changes');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Real-time subscription error:', err);
+          // Attempt to resubscribe after a delay
+          setTimeout(() => {
+            console.log('🔄 Attempting to reconnect real-time subscription...');
+            fetchWinners(false);
+          }, 3000);
+        } else if (status === 'TIMED_OUT') {
+          console.warn('⏱️ Real-time subscription timed out, reconnecting...');
+          setTimeout(() => {
+            fetchWinners(false);
+          }, 2000);
+        } else {
+          console.log('📡 Real-time subscription status:', status);
+        }
+      });
 
+    // Backup: Periodic refresh every 10 seconds to ensure data is always current
+    // This acts as a safety net in case real-time subscription has issues
+    const refreshInterval = setInterval(() => {
+      console.log('🔄 Periodic refresh check...');
+      fetchWinners(false);
+    }, 10000); // Refresh every 10 seconds
+
+    // Cleanup function
     return () => {
+      console.log('🧹 Cleaning up real-time subscription and intervals');
       supabase.removeChannel(channel);
+      clearInterval(refreshInterval);
       if (confettiIntervalRef.current) {
         clearInterval(confettiIntervalRef.current);
       }
@@ -150,9 +192,11 @@ const PublicWinners: React.FC = () => {
     }, 3000);
   };
 
-  const fetchWinners = async () => {
+  const fetchWinners = async (showLoading: boolean = true) => {
     try {
-      setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
       
       // Fetch all winners with pagination
       let allWinners: LotteryWinner[] = [];
@@ -181,16 +225,25 @@ const PublicWinners: React.FC = () => {
         }
       }
 
-      setWinners(allWinners);
+      // Force state updates - ensure React re-renders with new data
+      setWinners([...allWinners]); // Create new array reference to force update
       
-      // Set last winner
+      // Set last winner - this will trigger the fireworks effect if it's a new winner
       if (allWinners.length > 0) {
-        setLastWinner(allWinners[0]);
+        const newLastWinner = allWinners[0];
+        // Always update lastWinner to ensure UI refreshes
+        setLastWinner({ ...newLastWinner }); // Create new object reference
+      } else {
+        setLastWinner(null);
       }
+
+      console.log(`📊 Fetched ${allWinners.length} winners - Page will update`);
     } catch (error) {
-      console.error('Error fetching winners:', error);
+      console.error('❌ Error fetching winners:', error);
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   };
 
@@ -205,176 +258,130 @@ const PublicWinners: React.FC = () => {
     return category.quantity - used;
   };
 
-  const performWinnerSearch = async () => {
-    if (!searchTerm.trim()) {
-      toast.error('Please enter a lottery number or contact number');
-      return;
-    }
 
-    try {
-      setSearching(true);
-      setSearchPerformed(true);
-      setSearchedWinner(null);
-
-      // Try to parse as lottery number first
-      let lotteryNumber: number | null = null;
-      const trimmedSearch = searchTerm.trim();
-      
-      // Check if it's a 5-digit format (e.g., "00005")
-      if (trimmedSearch.length === 5 && /^[0-9]{5}$/.test(trimmedSearch)) {
-        lotteryNumber = parseInt(trimmedSearch, 10);
-      } else if (/^[0-9]+$/.test(trimmedSearch)) {
-        // Regular number format
-        lotteryNumber = parseInt(trimmedSearch, 10);
-      }
-
-      let query = supabase
-        .from('lottery_winners')
-        .select('*');
-
-      if (lotteryNumber !== null) {
-        query = query.eq('lottery_number', lotteryNumber);
-      } else {
-        // Search by contact number
-        query = query.ilike('winner_contact', `%${trimmedSearch}%`);
-      }
-
-      const { data, error } = await query.maybeSingle();
-
-      if (error) throw error;
-
-      if (data) {
-        setSearchedWinner(data);
-        // Trigger fireworks for winner found
-        triggerFireworks();
-      } else {
-        setSearchedWinner(null);
-      }
-    } catch (error) {
-      console.error('Error searching for winner:', error);
-      toast.error('Failed to search. Please try again.');
-      setSearchedWinner(null);
-    } finally {
-      setSearching(false);
-    }
-  };
-
-  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      performWinnerSearch();
-    }
-  };
-
-  const filteredWinners = winners.filter(winner => {
-    const matchesSearch = 
-      formatLotteryNumber(winner.lottery_number).includes(searchTerm) ||
-      winner.lottery_number.toString().includes(searchTerm) ||
-      winner.winner_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      winner.winner_contact.includes(searchTerm) ||
-      winner.prize_category.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesCategory = selectedCategory === 'all' || winner.prize_category === selectedCategory;
-    
-    return matchesSearch && matchesCategory;
-  });
+  const patternUrl = "data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E";
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-primary-50 via-secondary-50 to-success-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-primary-600 mx-auto mb-4"></div>
-          <p className="text-secondary-600">Loading winners...</p>
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-red-900 to-black flex items-center justify-center relative overflow-hidden">
+        <div 
+          className="absolute inset-0 opacity-20"
+          style={{ backgroundImage: `url("${patternUrl}")` }}
+        ></div>
+        <div className="text-center relative z-10">
+          <div className="relative">
+            <div className="animate-spin rounded-full h-20 w-20 border-4 border-yellow-400 border-t-transparent mx-auto mb-4 shadow-[0_0_20px_rgba(250,204,21,0.5)]"></div>
+            <div className="absolute inset-0 animate-ping rounded-full h-20 w-20 border-4 border-yellow-400 opacity-20"></div>
+          </div>
+          <p className="text-yellow-400 text-xl font-bold tracking-wider animate-pulse">LOADING WINNERS...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 via-secondary-50 to-success-50">
-      <div className="container mx-auto px-4 py-8">
-        {/* Big Title */}
-        <div className="text-center mb-8">
-          <h1 className="text-5xl md:text-6xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary-600 via-success-600 to-primary-600 mb-4">
-            🎉 Lottery Winners 🎉
-          </h1>
-          <p className="text-lg text-secondary-600 mt-2">
-            Check if your lottery number has won a prize!
-          </p>
-        </div>
-
-        {/* Contact Details for Prize Claiming */}
-        <div className="card bg-gradient-to-r from-success-50 to-primary-50 border-2 border-success-300 mb-6">
-          <div className="card-content">
-            <h3 className="text-xl font-semibold text-secondary-900 mb-4 flex items-center justify-center">
-              <Phone className="h-5 w-5 mr-2 text-success-600" />
-              Contact for Prize Claiming
-            </h3>
-            <div className="flex flex-col md:flex-row items-center justify-center gap-6">
-              <div className="bg-white rounded-lg p-4 shadow-sm text-center w-full md:w-auto">
-                <p className="text-sm text-secondary-600 mb-2">Contact Number 1</p>
-                <input
-                  type="text"
-                  value={contactNumber1}
-                  onChange={(e) => setContactNumber1(e.target.value)}
-                  className="text-xl font-bold text-primary-600 font-mono text-center bg-transparent border-b-2 border-primary-300 focus:border-primary-600 focus:outline-none w-full"
-                  placeholder="Enter contact number 1"
-                />
-              </div>
-              <div className="bg-white rounded-lg p-4 shadow-sm text-center w-full md:w-auto">
-                <p className="text-sm text-secondary-600 mb-2">Contact Number 2</p>
-                <input
-                  type="text"
-                  value={contactNumber2}
-                  onChange={(e) => setContactNumber2(e.target.value)}
-                  className="text-xl font-bold text-primary-600 font-mono text-center bg-transparent border-b-2 border-primary-300 focus:border-primary-600 focus:outline-none w-full"
-                  placeholder="Enter contact number 2"
-                />
-              </div>
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-red-900 to-black relative overflow-hidden">
+      {/* Animated Background Pattern */}
+      <div 
+        className="fixed inset-0 opacity-30"
+        style={{ backgroundImage: `url("${patternUrl}")` }}
+      ></div>
+      
+      {/* Floating Casino Chips Animation */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        {[...Array(5)].map((_, i) => (
+          <div
+            key={i}
+            className="absolute animate-float"
+            style={{
+              left: `${20 + i * 15}%`,
+              top: `${10 + i * 10}%`,
+              animationDelay: `${i * 0.5}s`,
+              animationDuration: `${3 + i}s`
+            }}
+          >
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 border-4 border-yellow-300 shadow-[0_0_20px_rgba(250,204,21,0.5)] flex items-center justify-center">
+              <Coins className="h-8 w-8 text-yellow-900" />
             </div>
-            <p className="text-center text-sm text-secondary-600 mt-4">
-              Please contact us with your lottery number and prize details to claim your prize
-            </p>
+          </div>
+        ))}
+      </div>
+
+      <div className="w-full px-1 sm:px-2 py-2 sm:py-4 relative z-10">
+        {/* Casino Style Header */}
+        <div className="text-center mb-2 sm:mb-4 relative">
+          {/* Neon Glow Effect */}
+          <div className="absolute inset-0 blur-3xl bg-yellow-400 opacity-20 animate-pulse"></div>
+          
+          <p className="text-xl md:text-2xl font-bold text-yellow-200 mb-3 tracking-wider relative z-10 drop-shadow-[0_0_10px_rgba(250,204,21,0.8)]">
+            SHRI SHYAM SANWALIYA CHARITABLE TRUST, DHARGAON
+          </p>
+          
+          <div className="relative z-10">
+            <h1 className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-yellow-200 to-yellow-400 mb-4 tracking-tight drop-shadow-[0_0_20px_rgba(250,204,21,0.9)] animate-pulse">
+              LOTTERY WINNERS
+            </h1>
+            
+            {/* Decorative Lines */}
+            <div className="flex items-center justify-center gap-4 mb-4">
+              <div className="h-1 w-24 bg-gradient-to-r from-transparent via-yellow-300 to-yellow-300"></div>
+              <Star className="h-6 w-6 text-yellow-300 animate-spin" style={{ animationDuration: '3s' }} />
+              <div className="h-1 w-24 bg-gradient-to-l from-transparent via-yellow-300 to-yellow-300"></div>
+            </div>
           </div>
         </div>
 
-        {/* Last Winner Section with Continuous Fireworks */}
+        {/* Last Winner - Casino Jackpot Style */}
         {lastWinner && (
-          <div className="card bg-gradient-to-r from-success-50 to-primary-50 border-2 border-success-300 mb-6 relative overflow-hidden">
-            <div className="card-header">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-secondary-900 flex items-center">
-                  <Trophy className="h-5 w-5 mr-2 text-success-600 animate-pulse" />
-                  Last Winner
-                </h3>
-                <span className="badge badge-success animate-pulse">Latest</span>
+          <div className="mb-2 sm:mb-4 relative w-full">
+            {/* Glowing Border Effect */}
+            <div className="absolute -inset-1 bg-gradient-to-r from-yellow-400 via-red-500 to-yellow-400 rounded-xl blur opacity-75 animate-pulse"></div>
+            
+            <div className="relative bg-gradient-to-br from-gray-800 via-gray-900 to-black rounded-lg sm:rounded-xl border-4 border-yellow-400 shadow-[0_0_40px_rgba(250,204,21,0.6)] p-2 sm:p-4 md:p-6 w-full">
+              {/* Sparkle Effects */}
+              <div className="absolute top-2 right-2 sm:top-4 sm:right-4">
+                <Sparkles className="h-6 w-6 sm:h-8 sm:w-8 text-yellow-400 animate-pulse" />
               </div>
-            </div>
-            <div className="card-content">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div className="bg-white rounded-lg p-4 shadow-sm">
-                  <p className="text-sm text-secondary-600">Lottery Number</p>
-                  <p className="text-2xl font-bold text-primary-600 font-mono">
+              
+              <div className="text-center mb-2 sm:mb-4">
+                <div className="inline-flex items-center gap-2 sm:gap-3 bg-yellow-400 px-3 sm:px-4 md:px-6 py-1.5 sm:py-2 md:py-3 rounded-full shadow-[0_0_20px_rgba(250,204,21,0.8)]">
+                  <Trophy className="h-5 w-5 sm:h-6 sm:w-6 md:h-8 md:w-8 text-yellow-900 animate-bounce" />
+                  <span className="text-base sm:text-lg md:text-xl lg:text-2xl font-black text-yellow-900 tracking-wider">JACKPOT WINNER</span>
+                  <Trophy className="h-5 w-5 sm:h-6 sm:w-6 md:h-8 md:w-8 text-yellow-900 animate-bounce" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 sm:gap-3 md:gap-4 mb-2 sm:mb-4">
+                {/* Lottery Number - Casino Style */}
+                <div className="bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-lg p-2 sm:p-3 md:p-4 border-2 border-yellow-300 shadow-[0_0_20px_rgba(250,204,21,0.5)] transform hover:scale-105 transition-transform">
+                  <p className="text-yellow-900 font-bold text-xs mb-1 sm:mb-2 tracking-wider">LOTTERY NUMBER</p>
+                  <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black text-yellow-900 font-mono tracking-wider">
                     {formatLotteryNumber(lastWinner.lottery_number)}
                   </p>
                 </div>
-                <div className="bg-white rounded-lg p-4 shadow-sm">
-                  <p className="text-sm text-secondary-600">Winner Name</p>
-                  <p className="text-xl font-semibold text-secondary-900">{lastWinner.winner_name}</p>
+
+                {/* Winner Name */}
+                <div className="bg-gradient-to-br from-red-600 to-red-700 rounded-lg p-2 sm:p-3 md:p-4 border-2 border-red-400 shadow-[0_0_20px_rgba(239,68,68,0.5)] transform hover:scale-105 transition-transform">
+                  <p className="text-red-50 font-bold text-xs mb-1 sm:mb-2 tracking-wider">WINNER NAME</p>
+                  <p className="text-base sm:text-lg md:text-xl lg:text-2xl font-black text-white break-words">{lastWinner.winner_name.toUpperCase()}</p>
                 </div>
-                <div className="bg-white rounded-lg p-4 shadow-sm">
-                  <p className="text-sm text-secondary-600">Prize Won</p>
-                  <p className="text-xl font-semibold text-success-600">{lastWinner.prize_category}</p>
+
+                {/* Prize Won */}
+                <div className="bg-gradient-to-br from-green-600 to-green-700 rounded-lg p-2 sm:p-3 md:p-4 border-2 border-green-400 shadow-[0_0_20px_rgba(34,197,94,0.5)] transform hover:scale-105 transition-transform">
+                  <p className="text-green-50 font-bold text-xs mb-1 sm:mb-2 tracking-wider">PRIZE WON</p>
+                  <p className="text-base sm:text-lg md:text-xl lg:text-2xl font-black text-white break-words">{lastWinner.prize_category.toUpperCase()}</p>
                 </div>
               </div>
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-white rounded-lg p-4 shadow-sm">
-                  <p className="text-sm text-secondary-600">Contact</p>
-                  <p className="font-mono text-secondary-900">{lastWinner.winner_contact}</p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3 md:gap-4">
+                <div className="bg-gray-800 rounded-lg p-2 sm:p-3 border-2 border-gray-600">
+                  <p className="text-yellow-300 font-bold text-xs mb-1 tracking-wider">CONTACT</p>
+                  <p className="font-mono text-white text-xs sm:text-sm md:text-base lg:text-lg break-all">{lastWinner.winner_contact}</p>
                 </div>
                 {lastWinner.winner_address && (
-                  <div className="bg-white rounded-lg p-4 shadow-sm">
-                    <p className="text-sm text-secondary-600">Address</p>
-                    <p className="text-secondary-900">{lastWinner.winner_address}</p>
+                  <div className="bg-gray-800 rounded-lg p-2 sm:p-3 border-2 border-gray-600">
+                    <p className="text-yellow-300 font-bold text-xs mb-1 tracking-wider">ADDRESS</p>
+                    <p className="text-white text-xs sm:text-sm md:text-base break-words">{lastWinner.winner_address}</p>
                   </div>
                 )}
               </div>
@@ -382,184 +389,103 @@ const PublicWinners: React.FC = () => {
           </div>
         )}
 
-        {/* Enhanced Search Section */}
-        <div className="card bg-gradient-to-r from-primary-50 to-success-50 border-2 border-primary-300 mb-6">
-          <div className="card-content">
-            <h3 className="text-2xl font-bold text-secondary-900 mb-6 text-center">
-              🔍 Check Your Lottery Number
-            </h3>
-            <div className="space-y-4">
-              <div className="flex flex-col md:flex-row gap-4 items-center">
-                <div className="flex-1 w-full">
-                  <div className="relative">
-                    <SearchIcon className="absolute left-4 top-1/2 transform -translate-y-1/2 h-6 w-6 text-secondary-400" />
-                    <input
-                      type="text"
-                      placeholder="Enter your lottery number or contact number..."
-                      value={searchTerm}
-                      onChange={(e) => {
-                        setSearchTerm(e.target.value);
-                        setSearchPerformed(false);
-                        setSearchedWinner(null);
-                      }}
-                      onKeyPress={handleSearchKeyPress}
-                      className="input w-full pl-12 text-lg py-4 border-2 border-primary-300 focus:border-primary-600 focus:ring-2 focus:ring-primary-200"
-                    />
-                  </div>
-                </div>
-                <button
-                  onClick={performWinnerSearch}
-                  disabled={searching || !searchTerm.trim()}
-                  className="btn btn-primary text-lg px-8 py-4 font-bold w-full md:w-auto min-w-[150px] disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {searching ? (
-                    <>
-                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white inline-block mr-2"></div>
-                      Searching...
-                    </>
-                  ) : (
-                    <>
-                      <SearchIcon className="h-5 w-5 mr-2" />
-                      Search
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {/* Search Results */}
-              {searchPerformed && (
-                <div className="mt-6">
-                  {searchedWinner ? (
-                    <div className="bg-gradient-to-r from-success-100 to-primary-100 border-2 border-success-400 rounded-lg p-8 text-center animate-pulse">
-                      <div className="text-6xl mb-4">🎉🎊🎉</div>
-                      <h2 className="text-3xl md:text-4xl font-bold text-success-700 mb-4">
-                        Hurray! You Won!
-                      </h2>
-                      <div className="bg-white rounded-lg p-6 shadow-lg mb-4">
-                        <p className="text-xl md:text-2xl font-semibold text-secondary-900 mb-2">
-                          Prize: <span className="text-success-600">{searchedWinner.prize_category}</span>
-                        </p>
-                        <p className="text-lg md:text-xl text-secondary-700">
-                          Lottery Number: <span className="font-mono font-bold text-primary-600">{formatLotteryNumber(searchedWinner.lottery_number)}</span>
-                        </p>
-                      </div>
-                      <div className="bg-white rounded-lg p-4 shadow-lg">
-                        <p className="text-lg font-semibold text-secondary-900 mb-2">
-                          📞 Contact on the numbers below to claim your prize:
-                        </p>
-                        <div className="flex flex-col md:flex-row items-center justify-center gap-4">
-                          <p className="text-xl font-bold text-primary-600 font-mono">{contactNumber1}</p>
-                          <span className="text-secondary-400">or</span>
-                          <p className="text-xl font-bold text-primary-600 font-mono">{contactNumber2}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="bg-gradient-to-r from-secondary-100 to-secondary-200 border-2 border-secondary-300 rounded-lg p-8 text-center">
-                      <div className="text-6xl mb-4">😔</div>
-                      <h2 className="text-3xl md:text-4xl font-bold text-secondary-700 mb-2">
-                        Better Luck Next Time
-                      </h2>
-                      <p className="text-lg text-secondary-600 mt-2">
-                        Your lottery number or contact number was not found in the winners list.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Category Filter (below search results) */}
-              <div className="mt-6 pt-6 border-t border-secondary-200">
-                <label className="block text-sm font-medium text-secondary-700 mb-2">
-                  Filter by Prize Category (Optional)
-                </label>
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="input w-full"
-                >
-                  <option value="all">All Categories</option>
-                  {PRIZE_CATEGORIES.map((prize) => {
-                    const remaining = getRemainingQuantity(prize.name);
-                    return (
-                      <option key={prize.name} value={prize.name}>
-                        {prize.name} ({getWinnersByCategory(prize.name).length}/{prize.quantity})
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Winners by Category */}
-        <div className="space-y-6">
-          {PRIZE_CATEGORIES.map((category) => {
+        {/* Prize Categories - Casino Table Style */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 md:gap-4 w-full">
+          {PRIZE_CATEGORIES.map((category, index) => {
             const categoryWinners = getWinnersByCategory(category.name);
             const remaining = getRemainingQuantity(category.name);
-            
-            if (selectedCategory !== 'all' && selectedCategory !== category.name) {
-              return null;
-            }
+            const colors = [
+              { bgFrom: '#ca8a04', bgTo: '#a16207', border: '#facc15', shadow: 'rgba(250,204,21,0.5)', icon: 'text-yellow-300' },
+              { bgFrom: '#dc2626', bgTo: '#b91c1c', border: '#f87171', shadow: 'rgba(239,68,68,0.5)', icon: 'text-red-300' },
+              { bgFrom: '#16a34a', bgTo: '#15803d', border: '#4ade80', shadow: 'rgba(34,197,94,0.5)', icon: 'text-green-300' },
+              { bgFrom: '#2563eb', bgTo: '#1d4ed8', border: '#60a5fa', shadow: 'rgba(59,130,246,0.5)', icon: 'text-blue-300' },
+              { bgFrom: '#9333ea', bgTo: '#7e22ce', border: '#a78bfa', shadow: 'rgba(168,85,247,0.5)', icon: 'text-purple-300' },
+            ];
+            const colorScheme = colors[index % colors.length];
 
             return (
-              <div key={category.name} className="card">
-                <div className="card-header">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-medium text-secondary-900">
-                      {category.name}
-                    </h3>
-                    <div className="flex items-center space-x-2">
-                      <span className="badge badge-secondary">
-                        {categoryWinners.length} / {category.quantity} Won
-                      </span>
-                      <span className={`badge ${remaining > 0 ? 'badge-success' : 'badge-danger'}`}>
-                        {remaining} Remaining
-                      </span>
+              <div key={category.name} className="relative group">
+                {/* Glow Effect */}
+                <div 
+                  className="absolute -inset-0.5 rounded-xl blur opacity-50 group-hover:opacity-75 transition-opacity"
+                  style={{
+                    background: `linear-gradient(to right, ${colorScheme.bgFrom}, ${colorScheme.bgTo})`
+                  }}
+                ></div>
+                
+                <div 
+                  className="relative bg-gradient-to-br from-gray-800 via-gray-900 to-black rounded-lg border-2 p-2 sm:p-3 md:p-4 w-full"
+                  style={{
+                    borderColor: colorScheme.border,
+                    boxShadow: `0 0 30px ${colorScheme.shadow}`
+                  }}
+                >
+                  {/* Header */}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 sm:mb-3 md:mb-4 pb-2 sm:pb-3 border-b-2 border-gray-700 gap-2 sm:gap-0">
+                    <div className="flex items-center gap-1.5 sm:gap-2">
+                      <Award className={`h-5 w-5 sm:h-6 sm:w-6 md:h-7 md:w-7 ${colorScheme.icon}`} />
+                      <h3 className="text-sm sm:text-base md:text-lg font-black text-white tracking-wider break-words">
+                        {category.name.toUpperCase()}
+                      </h3>
+                    </div>
+                    <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                      <div className="bg-yellow-500 px-2 py-1 rounded-full border border-yellow-600">
+                        <span className="text-yellow-950 font-black text-xs">
+                          {categoryWinners.length}/{category.quantity} WON
+                        </span>
+                      </div>
+                      <div className={`px-2 py-1 rounded-full border ${remaining > 0 ? 'bg-green-500 border-green-600' : 'bg-red-500 border-red-600'}`}>
+                        <span className={`font-black text-xs ${remaining > 0 ? 'text-green-950' : 'text-red-950'}`}>
+                          {remaining} LEFT
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="card-content">
+
+                  {/* Winners Table - Casino Style - No Scrolling */}
                   {categoryWinners.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="table">
-                        <thead className="table-header">
-                          <tr>
-                            <th className="table-header-cell">Lottery #</th>
-                            <th className="table-header-cell">Winner Name</th>
-                            <th className="table-header-cell">Contact</th>
-                            <th className="table-header-cell">Address</th>
+                    <div className="w-full">
+                      <table className="w-full table-auto">
+                        <thead>
+                          <tr className="border-b-2 border-gray-700">
+                            <th className="text-left py-1 sm:py-2 px-1 sm:px-2 text-yellow-300 font-bold text-xs tracking-wider">LOTTERY #</th>
+                            <th className="text-left py-1 sm:py-2 px-1 sm:px-2 text-yellow-300 font-bold text-xs tracking-wider">WINNER</th>
+                            <th className="text-left py-1 sm:py-2 px-1 sm:px-2 text-yellow-300 font-bold text-xs tracking-wider hidden sm:table-cell">CONTACT</th>
+                            <th className="text-left py-1 sm:py-2 px-1 sm:px-2 text-yellow-300 font-bold text-xs tracking-wider hidden md:table-cell">ADDRESS</th>
                           </tr>
                         </thead>
-                        <tbody className="table-body">
-                          {categoryWinners
-                            .filter(winner => {
-                              if (searchTerm && selectedCategory === 'all') {
-                                return formatLotteryNumber(winner.lottery_number).includes(searchTerm) ||
-                                       winner.winner_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                                       winner.winner_contact.includes(searchTerm);
-                              }
-                              return true;
-                            })
-                            .map((winner) => (
-                              <tr key={winner.id} className="table-row">
-                                <td className="table-cell font-mono font-medium">
+                        <tbody>
+                          {categoryWinners.map((winner, idx) => (
+                            <tr 
+                              key={winner.id} 
+                              className={`border-b border-gray-800 hover:bg-gray-800 transition-colors ${idx % 2 === 0 ? 'bg-gray-900/50' : 'bg-gray-900/30'}`}
+                            >
+                              <td className="py-1 sm:py-1.5 px-1 sm:px-2">
+                                <span className="font-mono font-bold text-yellow-300 text-xs">
                                   {formatLotteryNumber(winner.lottery_number)}
-                                </td>
-                                <td className="table-cell font-medium">{winner.winner_name}</td>
-                                <td className="table-cell font-mono">{winner.winner_contact}</td>
-                                <td className="table-cell">
-                                  {winner.winner_address || <span className="text-secondary-400">No address</span>}
-                                </td>
-                              </tr>
-                            ))}
+                                </span>
+                              </td>
+                              <td className="py-1 sm:py-1.5 px-1 sm:px-2">
+                                <span className="text-white font-semibold text-xs break-words">{winner.winner_name}</span>
+                              </td>
+                              <td className="py-1 sm:py-1.5 px-1 sm:px-2 hidden sm:table-cell">
+                                <span className="font-mono text-gray-200 text-xs break-all">{winner.winner_contact}</span>
+                              </td>
+                              <td className="py-1 sm:py-1.5 px-1 sm:px-2 hidden md:table-cell">
+                                <span className="text-gray-300 text-xs break-words">
+                                  {winner.winner_address || <span className="italic text-gray-400">No address</span>}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
                         </tbody>
                       </table>
                     </div>
                   ) : (
-                    <div className="text-center py-8 text-secondary-500">
-                      No winners registered for this category yet
+                    <div className="text-center py-4 sm:py-6">
+                      <div className="inline-block bg-gray-800 rounded-full p-3 sm:p-4 border-2 border-gray-700">
+                        <p className="text-gray-300 font-bold tracking-wider text-xs sm:text-sm">NO WINNERS YET</p>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -568,12 +494,43 @@ const PublicWinners: React.FC = () => {
           })}
         </div>
 
-        {/* Footer */}
-        <div className="text-center mt-12 mb-6 text-secondary-500 text-sm">
-          <p>Total Winners: {winners.length}</p>
-          <p className="mt-2">Last Updated: {new Date().toLocaleString('en-IN')}</p>
+        {/* Footer - Casino Style */}
+        <div className="text-center mt-4 sm:mt-6 mb-2 sm:mb-4 relative">
+          <div className="inline-block bg-gradient-to-r from-yellow-500 to-yellow-600 px-3 sm:px-4 md:px-6 py-2 sm:py-3 rounded-full border-2 border-yellow-300 shadow-[0_0_20px_rgba(250,204,21,0.5)]">
+            <p className="text-yellow-950 font-black text-xs sm:text-sm md:text-base tracking-wider">
+              TOTAL WINNERS: {winners.length}
+            </p>
+            <p className="text-yellow-900 text-xs mt-1 font-semibold">
+              Last Updated: {new Date().toLocaleString('en-IN')}
+            </p>
+          </div>
         </div>
       </div>
+
+      {/* Custom Styles */}
+      <style>{`
+        @keyframes float {
+          0%, 100% { transform: translateY(0px) rotate(0deg); }
+          50% { transform: translateY(-20px) rotate(180deg); }
+        }
+        .animate-float {
+          animation: float 4s ease-in-out infinite;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: rgba(0, 0, 0, 0.3);
+          border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: linear-gradient(to bottom, #fbbf24, #f59e0b);
+          border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: linear-gradient(to bottom, #fcd34d, #fbbf24);
+        }
+      `}</style>
     </div>
   );
 };
