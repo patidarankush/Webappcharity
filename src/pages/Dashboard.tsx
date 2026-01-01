@@ -11,9 +11,12 @@ import {
   Clock,
   RotateCcw,
   Search,
-  X
+  X,
+  Download,
+  FileSpreadsheet
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import * as XLSX from 'xlsx';
 
 const Dashboard: React.FC = () => {
   const [stats, setStats] = useState<DashboardStats>({
@@ -105,6 +108,79 @@ const Dashboard: React.FC = () => {
       alert('Failed to fetch missing tickets. Please try again.');
     } finally {
       setLoadingMissingTickets(false);
+    }
+  };
+
+  const handleExportToExcel = () => {
+    if (!missingTickets) return;
+
+    try {
+      // Create workbook
+      const workbook = XLSX.utils.book_new();
+
+      // Sheet 1: Summary
+      const summaryData = [
+        ['Missing Lottery Tickets Report'],
+        ['Generated Date', new Date().toLocaleString()],
+        ['Total Missing Tickets', missingTickets.total_missing],
+        ['Total Diaries with Missing Tickets', missingTickets.grouped_by_diary.length],
+        [],
+        ['Diary Number', 'Missing Count', 'Missing Ticket Numbers']
+      ];
+
+      // Add data rows
+      missingTickets.grouped_by_diary.forEach(group => {
+        summaryData.push([
+          group.diary_number,
+          group.missing_count,
+          group.missing_numbers.map(n => n.toString().padStart(5, '0')).join(', ')
+        ]);
+      });
+
+      const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+      
+      // Set column widths
+      summarySheet['!cols'] = [
+        { wch: 15 }, // Diary Number
+        { wch: 15 }, // Missing Count
+        { wch: 100 } // Missing Ticket Numbers
+      ];
+
+      XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary by Diary');
+
+      // Sheet 2: Detailed list (all missing tickets)
+      const detailedData = [
+        ['Lottery Number', 'Diary Number', 'Formatted Lottery Number']
+      ];
+
+      missingTickets.missing_tickets.forEach(ticket => {
+        detailedData.push([
+          ticket.lottery_number,
+          ticket.diary_number,
+          ticket.lottery_number.toString().padStart(5, '0')
+        ]);
+      });
+
+      const detailedSheet = XLSX.utils.aoa_to_sheet(detailedData);
+      
+      // Set column widths
+      detailedSheet['!cols'] = [
+        { wch: 18 }, // Lottery Number
+        { wch: 15 }, // Diary Number
+        { wch: 25 }  // Formatted Lottery Number
+      ];
+
+      XLSX.utils.book_append_sheet(workbook, detailedSheet, 'All Missing Tickets');
+
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const filename = `Missing_Lottery_Tickets_${timestamp}.xlsx`;
+
+      // Write file
+      XLSX.writeFile(workbook, filename);
+    } catch (error) {
+      console.error('Error exporting to Excel:', error);
+      alert('Failed to export to Excel. Please try again.');
     }
   };
 
@@ -341,20 +417,40 @@ const Dashboard: React.FC = () => {
             <h3 className="text-lg font-medium text-secondary-900">
               Missing Lottery Tickets (1-39999)
             </h3>
-            <button
-              onClick={() => setShowMissingTickets(false)}
-              className="p-1 text-secondary-500 hover:text-secondary-700 transition-colors"
-            >
-              <X className="h-5 w-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExportToExcel}
+                className="flex items-center gap-2 px-4 py-2 bg-success-600 text-white rounded-lg hover:bg-success-700 transition-colors"
+                title="Download as Excel"
+              >
+                <FileSpreadsheet className="h-4 w-4" />
+                <span>Export to Excel</span>
+              </button>
+              <button
+                onClick={() => setShowMissingTickets(false)}
+                className="p-1 text-secondary-500 hover:text-secondary-700 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
           </div>
           <div className="card-content">
             <div className="mb-4 p-4 bg-warning-50 border border-warning-200 rounded-lg">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-warning-600" />
-                <span className="text-lg font-semibold text-warning-900">
-                  Total Missing Tickets: {missingTickets.total_missing.toLocaleString()}
-                </span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-warning-600" />
+                  <span className="text-lg font-semibold text-warning-900">
+                    Total Missing Tickets: {missingTickets.total_missing.toLocaleString()}
+                  </span>
+                </div>
+                <button
+                  onClick={handleExportToExcel}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-success-600 text-white text-sm rounded-lg hover:bg-success-700 transition-colors"
+                  title="Download as Excel"
+                >
+                  <Download className="h-4 w-4" />
+                  <span>Download Excel</span>
+                </button>
               </div>
             </div>
 
