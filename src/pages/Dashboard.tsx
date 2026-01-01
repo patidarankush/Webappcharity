@@ -122,8 +122,8 @@ const Dashboard: React.FC = () => {
       const summaryData = [
         ['Missing Lottery Tickets Report'],
         ['Generated Date', new Date().toLocaleString()],
-        ['Total Missing Tickets', missingTickets.total_missing],
-        ['Total Diaries with Missing Tickets', missingTickets.grouped_by_diary.length],
+        ['Total Missing Tickets', missingTickets.total_missing.toString()],
+        ['Total Diaries with Missing Tickets', missingTickets.grouped_by_diary.length.toString()],
         [],
         ['Diary Number', 'Missing Count', 'Missing Ticket Numbers']
       ];
@@ -131,8 +131,8 @@ const Dashboard: React.FC = () => {
       // Add data rows
       missingTickets.grouped_by_diary.forEach(group => {
         summaryData.push([
-          group.diary_number,
-          group.missing_count,
+          group.diary_number.toString(),
+          group.missing_count.toString(),
           group.missing_numbers.map(n => n.toString().padStart(5, '0')).join(', ')
         ]);
       });
@@ -155,8 +155,8 @@ const Dashboard: React.FC = () => {
 
       missingTickets.missing_tickets.forEach(ticket => {
         detailedData.push([
-          ticket.lottery_number,
-          ticket.diary_number,
+          ticket.lottery_number.toString(),
+          ticket.diary_number.toString(),
           ticket.lottery_number.toString().padStart(5, '0')
         ]);
       });
