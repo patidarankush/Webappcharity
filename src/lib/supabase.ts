@@ -199,3 +199,91 @@ export function getFormattedTicketRangeForDiary(diaryNumber: number): { start: s
     end: formatLotteryNumber(range.end)
   };
 }
+
+// Interface for missing ticket information
+export interface MissingTicket {
+  lottery_number: number;
+  diary_number: number;
+}
+
+export interface MissingTicketsResult {
+  missing_tickets: MissingTicket[];
+  total_missing: number;
+  grouped_by_diary: { diary_number: number; missing_count: number; missing_numbers: number[] }[];
+}
+
+// Function to get missing lottery tickets (1-39999)
+export async function getMissingTickets(): Promise<MissingTicketsResult> {
+  try {
+    // Fetch ALL existing lottery numbers with pagination to handle Supabase's default limit
+    let allExistingTickets: { lottery_number: number }[] = [];
+    let from = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data: ticketsPage, error } = await supabase
+        .from('ticket_sales')
+        .select('lottery_number')
+        .order('lottery_number', { ascending: true })
+        .range(from, from + pageSize - 1);
+
+      if (error) throw error;
+
+      if (ticketsPage && ticketsPage.length > 0) {
+        allExistingTickets = [...allExistingTickets, ...ticketsPage];
+        from += pageSize;
+        hasMore = ticketsPage.length === pageSize;
+      } else {
+        hasMore = false;
+      }
+    }
+
+    // Create a set of existing lottery numbers for fast lookup
+    // Ensure all numbers are integers for proper comparison
+    const existingNumbers = new Set(
+      allExistingTickets.map(t => Number(t.lottery_number))
+    );
+
+    console.log(`Fetched ${allExistingTickets.length} existing tickets from database`);
+
+    // Generate all possible lottery numbers (1-39999)
+    const allNumbers = Array.from({ length: 39999 }, (_, i) => i + 1);
+
+    // Find missing numbers
+    const missingNumbers = allNumbers.filter(num => !existingNumbers.has(num));
+
+    // Map missing numbers to their diary numbers and group by diary
+    const missingTickets: MissingTicket[] = missingNumbers.map(num => ({
+      lottery_number: num,
+      diary_number: getDiaryFromLotteryNumber(num)
+    }));
+
+    // Group by diary number
+    const groupedByDiary = new Map<number, number[]>();
+    missingTickets.forEach(ticket => {
+      if (!groupedByDiary.has(ticket.diary_number)) {
+        groupedByDiary.set(ticket.diary_number, []);
+      }
+      groupedByDiary.get(ticket.diary_number)!.push(ticket.lottery_number);
+    });
+
+    // Convert to array format
+    const groupedArray = Array.from(groupedByDiary.entries())
+      .map(([diary_number, missing_numbers]) => ({
+        diary_number,
+        missing_count: missing_numbers.length,
+        missing_numbers: missing_numbers.sort((a, b) => a - b)
+      }))
+      .sort((a, b) => a.diary_number - b.diary_number);
+
+    return {
+      missing_tickets: missingTickets,
+      total_missing: missingTickets.length,
+      grouped_by_diary: groupedArray
+    };
+  } catch (error) {
+    console.error('Error fetching missing tickets:', error);
+    throw error;
+  }
+}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, DashboardStats, IssuerPerformance } from '../lib/supabase';
+import { supabase, DashboardStats, IssuerPerformance, getMissingTickets, MissingTicketsResult } from '../lib/supabase';
 import { 
   Ticket, 
   DollarSign, 
@@ -9,7 +9,9 @@ import {
   AlertCircle,
   CheckCircle,
   Clock,
-  RotateCcw
+  RotateCcw,
+  Search,
+  X
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
@@ -27,6 +29,9 @@ const Dashboard: React.FC = () => {
   });
   const [issuerPerformance, setIssuerPerformance] = useState<IssuerPerformance[]>([]);
   const [loading, setLoading] = useState(true);
+  const [missingTickets, setMissingTickets] = useState<MissingTicketsResult | null>(null);
+  const [loadingMissingTickets, setLoadingMissingTickets] = useState(false);
+  const [showMissingTickets, setShowMissingTickets] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
@@ -89,6 +94,20 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const handleCheckMissingTickets = async () => {
+    try {
+      setLoadingMissingTickets(true);
+      const result = await getMissingTickets();
+      setMissingTickets(result);
+      setShowMissingTickets(true);
+    } catch (error) {
+      console.error('Error checking missing tickets:', error);
+      alert('Failed to fetch missing tickets. Please try again.');
+    } finally {
+      setLoadingMissingTickets(false);
+    }
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'allotted':
@@ -146,11 +165,21 @@ const Dashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-secondary-900">Dashboard</h1>
-        <p className="mt-1 text-sm text-secondary-500">
-          Overview of lottery ticket sales and diary management
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-secondary-900">Dashboard</h1>
+          <p className="mt-1 text-sm text-secondary-500">
+            Overview of lottery ticket sales and diary management
+          </p>
+        </div>
+        <button
+          onClick={handleCheckMissingTickets}
+          disabled={loadingMissingTickets}
+          className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          <Search className="h-4 w-4" />
+          {loadingMissingTickets ? 'Checking...' : 'Check Missing Tickets'}
+        </button>
       </div>
 
       {/* Stats Grid */}
@@ -304,6 +333,86 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Missing Tickets Section */}
+      {showMissingTickets && missingTickets && (
+        <div className="card">
+          <div className="card-header flex items-center justify-between">
+            <h3 className="text-lg font-medium text-secondary-900">
+              Missing Lottery Tickets (1-39999)
+            </h3>
+            <button
+              onClick={() => setShowMissingTickets(false)}
+              className="p-1 text-secondary-500 hover:text-secondary-700 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="card-content">
+            <div className="mb-4 p-4 bg-warning-50 border border-warning-200 rounded-lg">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-warning-600" />
+                <span className="text-lg font-semibold text-warning-900">
+                  Total Missing Tickets: {missingTickets.total_missing.toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <div className="mb-4 text-sm text-secondary-600">
+                Showing {missingTickets.grouped_by_diary.length} diaries with missing tickets
+              </div>
+              <div className="max-h-96 overflow-y-auto">
+                <table className="table">
+                  <thead className="table-header sticky top-0">
+                    <tr>
+                      <th className="table-header-cell">Diary Number</th>
+                      <th className="table-header-cell">Missing Count</th>
+                      <th className="table-header-cell">Missing Ticket Numbers</th>
+                    </tr>
+                  </thead>
+                  <tbody className="table-body">
+                    {missingTickets.grouped_by_diary.map((group) => (
+                      <tr key={group.diary_number} className="table-row">
+                        <td className="table-cell font-medium">{group.diary_number}</td>
+                        <td className="table-cell">{group.missing_count}</td>
+                        <td className="table-cell">
+                          <div className="flex flex-wrap gap-1 max-w-2xl">
+                            {group.missing_numbers.length <= 50 ? (
+                              group.missing_numbers.map((num) => (
+                                <span
+                                  key={num}
+                                  className="inline-block px-2 py-1 text-xs bg-secondary-100 text-secondary-700 rounded"
+                                >
+                                  {num.toString().padStart(5, '0')}
+                                </span>
+                              ))
+                            ) : (
+                              <>
+                                {group.missing_numbers.slice(0, 50).map((num) => (
+                                  <span
+                                    key={num}
+                                    className="inline-block px-2 py-1 text-xs bg-secondary-100 text-secondary-700 rounded"
+                                  >
+                                    {num.toString().padStart(5, '0')}
+                                  </span>
+                                ))}
+                                <span className="inline-block px-2 py-1 text-xs bg-secondary-200 text-secondary-800 rounded font-medium">
+                                  ... and {group.missing_numbers.length - 50} more
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Issuer Performance Table */}
       <div className="card">
