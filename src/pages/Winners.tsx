@@ -103,27 +103,52 @@ const Winners: React.FC = () => {
   const handleSaveEdit = async (updatedData: Partial<LotteryWinner>) => {
     if (!editingWinner) return;
 
+    // Validate critical fields - prevent empty or null values
+    if (!updatedData.winner_name || updatedData.winner_name.trim().length === 0) {
+      toast.error('Winner name cannot be empty');
+      return;
+    }
+
+    if (!updatedData.winner_contact || updatedData.winner_contact.trim().length === 0) {
+      toast.error('Winner contact cannot be empty');
+      return;
+    }
+
+    if (!updatedData.prize_category || updatedData.prize_category.trim().length === 0) {
+      toast.error('Prize category cannot be empty');
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from('lottery_winners')
         .update({
-          prize_category: updatedData.prize_category,
-          winner_name: updatedData.winner_name,
-          winner_contact: updatedData.winner_contact,
-          winner_address: updatedData.winner_address,
-          notes: updatedData.notes
+          prize_category: updatedData.prize_category.trim(),
+          winner_name: updatedData.winner_name.trim(),
+          winner_contact: updatedData.winner_contact.trim(),
+          winner_address: updatedData.winner_address?.trim() || null,
+          notes: updatedData.notes?.trim() || null
         })
         .eq('id', editingWinner.id);
 
-      if (error) throw error;
+      if (error) {
+        // Check if it's a constraint violation
+        if (error.message.includes('cannot be NULL') || error.message.includes('cannot be empty')) {
+          toast.error(`Database validation error: ${error.message}`);
+        } else {
+          throw error;
+        }
+        return;
+      }
 
       toast.success('Winner entry updated successfully');
       setShowEditForm(false);
       setEditingWinner(null);
       fetchWinners();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating winner:', error);
-      toast.error('Failed to update winner entry');
+      const errorMessage = error?.message || 'Failed to update winner entry';
+      toast.error(errorMessage);
     }
   };
 
@@ -411,6 +436,9 @@ const Winners: React.FC = () => {
                       onChange={(e) => setEditingWinner({ ...editingWinner, winner_name: e.target.value })}
                       className="input"
                       required
+                      minLength={1}
+                      pattern=".*\S+.*"
+                      title="Winner name cannot be empty or only whitespace"
                     />
                   </div>
 
@@ -424,6 +452,9 @@ const Winners: React.FC = () => {
                       onChange={(e) => setEditingWinner({ ...editingWinner, winner_contact: e.target.value })}
                       className="input"
                       required
+                      minLength={1}
+                      pattern=".*\S+.*"
+                      title="Contact number cannot be empty or only whitespace"
                     />
                   </div>
 

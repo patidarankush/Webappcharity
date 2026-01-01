@@ -346,6 +346,17 @@ const Search: React.FC = () => {
       return;
     }
 
+    // Validate ticket data before registration
+    if (!ticket.purchaser_name || ticket.purchaser_name.trim().length === 0) {
+      toast.error('Ticket purchaser name is missing or empty. Cannot register winner.');
+      return;
+    }
+
+    if (!ticket.purchaser_contact || ticket.purchaser_contact.trim().length === 0) {
+      toast.error('Ticket purchaser contact is missing or empty. Cannot register winner.');
+      return;
+    }
+
     try {
       setRegisteringWinner(ticket.id);
 
@@ -357,11 +368,11 @@ const Search: React.FC = () => {
         .insert([{
           lottery_number: lotteryNumber,
           ticket_sale_id: ticket.id,
-          prize_category: selectedPrizeCategory,
+          prize_category: selectedPrizeCategory.trim(),
           prize_quantity: prizeQuantity,
-          winner_name: ticket.purchaser_name,
-          winner_contact: ticket.purchaser_contact,
-          winner_address: ticket.purchaser_address,
+          winner_name: ticket.purchaser_name.trim(),
+          winner_contact: ticket.purchaser_contact.trim(),
+          winner_address: ticket.purchaser_address?.trim() || null,
           diary_number: diaryNumber
         }])
         .select()
